@@ -20,9 +20,9 @@ def client_evt(name, evt, data):
 def server_evt(evt, client, data):
    print(f'Server Event, Client: "{client.name}", Evt: "{evt}", Data:\n "{data}"')
 
-def create_local_clients(train_ds_list: list, clients_list: list, flm):
+def create_local_clients(train_ds_list: list, clients_list: list):
    for client_id in range(len(train_ds_list)):
-      client = Client(f"Client#{client_id}", IpAddr("127.0.0.1", 9914), flm, train_ds_list[client_id], ResNet18, optim.SGD, nn.CrossEntropyLoss, "cpu")
+      client = Client(f"Client#{client_id}", IpAddr("127.0.0.1", 9914), TrainingHyperParameters(0.001, 0.9, 1e-7), train_ds_list[client_id], ResNet18, optim.SGD, nn.CrossEntropyLoss, "cpu")
       #client.send_notification_to_server(COMM_EVT_TRAINING_START, 5, 0)
       clients_list.append(client)
    
@@ -36,10 +36,10 @@ def create_local_clients(train_ds_list: list, clients_list: list, flm):
 
 #server.send_command("Client#1", COMM_HEADER_CMD_START_TRAINNING, 0)
 fedavg = FedAvg()
-train_ds_list, test_ds = create_datasets(10, "CIFAR10", True, 0.9, 128, 256)
+train_ds_list, test_ds = create_datasets(20, "CIFAR10", True, 0.5, 128, 256, True)
 server = Server(fedavg, test_ds, 3, ResNet18, optim.SGD, nn.CrossEntropyLoss, "cpu")
 clients_list = []
-create_local_clients(train_ds_list, clients_list, fedavg)
+create_local_clients(train_ds_list, clients_list)
 server.start_round(5, [100, 200], 0.01)
 sg.theme('Dark Amber')
 
