@@ -6,11 +6,12 @@ from dataset.dataset import *
 from ServerComm import ServerComm, ClientData
 from utils.consts import *
 from FederatedLearningClass import *
+from utils.common import *
 
 class Server:
-    def __init__(self, fl_method: FederatedLearningClass, test_ds : torch.utils.data.DataLoader, contributer_num : int, arch : nn.Module, optimizer : torch.optim, loss : nn.Module, executer = "cpu"):
-        self.global_model = arch().to(executer)
-        self.server_comm = ServerComm("127.0.0.1", 9914, self.__server_evt_fn)
+    def __init__(self, ip_addr: IpAddr, fl_method: FederatedLearningClass, test_ds : torch.utils.data.DataLoader, contributer_num : int, model : nn.Module, optimizer : torch.optim, loss : nn.Module, executer = "cpu"):
+        self.global_model = model
+        self.server_comm = ServerComm(ip_addr.get_ip(), ip_addr.get_port(), self.__server_evt_fn)
         self.global_optimizer = optimizer(self.global_model.parameters(), lr=fl_method.learning_rate, momentum=fl_method.momentum, weight_decay=fl_method.weight_decay)
         self.criterion = loss().to(executer)
         self.executer = executer

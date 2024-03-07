@@ -11,9 +11,9 @@ from ClientComm import *
 
 
 class Client:
-    def __init__(self, name, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, arch: nn.Module, optimizer: torch.optim, loss: nn.Module, executer = "cpu"):
+    def __init__(self, name, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, executer = "cpu"):
         self.client_comm = ClientComm(name, ip_addr.get_ip(), ip_addr.get_port(), self.__client_evt_cb)
-        self.client_model = arch().to(executer)
+        self.client_model = model
         self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum, weight_decay=hyperparameters.weight_decay)
         self.criterion = loss().to(executer)
         self.executer = executer
@@ -59,6 +59,7 @@ class Client:
                 outputs = self.client_model(inputs)
                 _, preds = torch.max(outputs, 1)
                 loss = self.criterion(outputs, labels)
+                torch.autograd.set_detect_anomaly(True)
                 loss.backward()
                 self.client_optimizer.step()
 

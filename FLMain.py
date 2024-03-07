@@ -12,6 +12,16 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from FedAvg import *
 from Client import *
+from arch.arch import *
+
+
+arch = FWArch(BaseArch.FeedForwardNet1)
+arch.SetParameter("NumberOfInputNodes", 28 * 28)
+arch.SetParameter("NumberOfHiddenNodes", 128)
+arch.SetParameter("NumberOfOutputNodes", 10)
+arch.SetParameter("ActivationFunction", ActivationFunction.ReLUFunction)
+arch.Build()
+
 
 def client_evt(name, evt, data):
    if evt == COMM_EVT_TRAINING_START:
@@ -22,7 +32,8 @@ def server_evt(evt, client, data):
 
 def create_local_clients(train_ds_list: list, clients_list: list):
    for client_id in range(len(train_ds_list)):
-      client = Client(f"Client#{client_id}", IpAddr("127.0.0.1", 9914), TrainingHyperParameters(0.001, 0.9, 1e-7), train_ds_list[client_id], ResNet18, optim.SGD, nn.CrossEntropyLoss, "cpu")
+      model = arch.CreateModel()
+      client = Client(f"Client#{client_id}", IpAddr("127.0.0.1", 9911), TrainingHyperParameters(0.001, 0.9, 1e-7), train_ds_list[client_id], model, optim.SGD, nn.CrossEntropyLoss, "cpu")
       #client.send_notification_to_server(COMM_EVT_TRAINING_START, 5, 0)
       clients_list.append(client)
    
@@ -36,8 +47,9 @@ def create_local_clients(train_ds_list: list, clients_list: list):
 
 #server.send_command("Client#1", COMM_HEADER_CMD_START_TRAINNING, 0)
 fedavg = FedAvg()
-train_ds_list, test_ds = create_datasets(20, "CIFAR10", True, 0.5, 128, 256, True)
-server = Server(fedavg, test_ds, 3, ResNet18, optim.SGD, nn.CrossEntropyLoss, "cpu")
+train_ds_list, test_ds = create_datasets(4, "MNIST", True, 0.5, 128, 256, True)
+model = arch.CreateModel()
+server = Server(IpAddr("127.0.0.1", 9911), fedavg, test_ds, 3, model, optim.SGD, nn.CrossEntropyLoss, "cpu")
 clients_list = []
 create_local_clients(train_ds_list, clients_list)
 server.start_round(5, [100, 200], 0.01)
