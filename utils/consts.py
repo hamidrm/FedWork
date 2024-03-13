@@ -1,3 +1,5 @@
+OUTPUT_DIR = "output"
+
 COMM_HEADER_SIZE = 16
 COMM_HEADER_FORMAT = "!IIIhh"
 COMM_HEADER_DICT = {"packet_sign" : 0, "payload_len" : 0, "type" : 0, "param1" : 0, "param2" : 0}

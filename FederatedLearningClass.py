@@ -4,6 +4,10 @@ class FederatedLearningClass(ABC):
     learning_rate = 0.0001
     momentum = 0.9
     weight_decay = 1e-7
+    args = None
+
+    def set_server(self, server):
+        self.server = server
 
     @abstractmethod
     def get_name(self):
@@ -14,7 +18,11 @@ class FederatedLearningClass(ABC):
         pass
 
     @abstractmethod
-    def select_clients(self, all_clients, number):
+    def select_clients(self, all_clients):
+        pass
+    
+    @abstractmethod
+    def start_training(self):
         pass
     
     @abstractmethod
@@ -29,4 +37,7 @@ class FederatedLearningClass(ABC):
         self.learning_rate = learning_rate
         self.momentum = momentum
         self.weight_decay = weight_decay
-        
+
+    @abstractmethod
+    def ready_to_aggregate(self, num_of_received_model: int) -> bool:
+        pass

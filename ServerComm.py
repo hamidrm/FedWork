@@ -91,11 +91,17 @@ class ServerComm:
                     else:
                         raise ValueError(f'Invalid command on Server from "{client_data.name} ({client_data.addr})".')
                 elif packet_type == COMM_HEADER_TYPES_DATA:
-                    self.download_data_size += payload_size + COMM_HEADER_SIZE
-                    payload = self.socket.recv(payload_size) # Read the payload
                     self.download_total_size += payload_size
                     self.download_data_size += payload_size
-                    data = pickle.loads(payload)
+                    recv_buffer_size = client_data.connection.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+                    payload = []
+                    while True:
+                        chunk = client_data.connection.recv(min(recv_buffer_size, payload_size - len(payload)))
+                        if not chunk:
+                            break
+                        payload += chunk
+
+                    data = pickle.loads(bytes(payload))
                     self.server_evt_fn(COMM_EVT_MODEL, client_data, data)
                 elif packet_type == COMM_HEADER_TYPES_NOTI:
                     if packet_param1 == COMM_HEADER_NOTI_EPOCH_DONE:

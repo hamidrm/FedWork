@@ -72,4 +72,5 @@ class Client:
             self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_EPOCH_DONE, int(train_accuracy.item() * 10000))
             if lr_scheduler_milestone_list is not None:
                 scheduler.step()
+        self.client_comm.send_data_to_server(self.client_model.state_dict())
         self.client_comm.send_notification_to_server(COMM_HEADER_CMD_TRAINNING_DONE, 0)
