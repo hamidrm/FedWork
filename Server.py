@@ -8,8 +8,8 @@ from utils.consts import *
 from FederatedLearningClass import *
 from utils.common import *
 import copy
-import profiler
-
+from utils.logger import *
+from utils.profiler import *
 
 class Server:
     def __init__(self, ip_addr: IpAddr, fl_method: FederatedLearningClass, test_ds : torch.utils.data.DataLoader, model : nn.Module, optimizer : torch.optim, loss : nn.Module, executer = "cpu"):
@@ -21,6 +21,7 @@ class Server:
         self.test_ds = test_ds
         self.received_models = []
         self.fl_method = fl_method
+        self.round_number = 0
         self.fl_method.server = self
 
     def start_round_ex(self, epochs, lr_mileston, gamma):
@@ -38,6 +39,7 @@ class Server:
         clients = self.server_comm.get_clients()
         clients_subset = self.fl_method.select_clients(clients)
         training_conf = {}
+        self.round_number += 1
         training_conf["epochs_num"] = epochs
         training_conf["milestone_list"] = lr_mileston
         training_conf["gamma"] = gamma
@@ -47,31 +49,35 @@ class Server:
     def __server_evt_fn(self, evt, client, data):
         if evt == COMM_EVT_MODEL:
             self.received_models.append(data)
-            print(f"[{self.fl_method.get_name()}]: Trained model received from '{client.name}'.")
+            self.logger.log(f"[{self.fl_method.get_name()}]: Trained model received from '{client.name}'.", logger.logger_log_type.logger_type_info)
             if self.fl_method.ready_to_aggregate(len(self.received_models)):
                 model_list = [copy.deepcopy(model) for model in self.received_models]
                 aggregation_thread = threading.Thread(target=self.__aggregation_thread, args=(model_list, ))
                 aggregation_thread.start()
                 self.received_models.clear()
         elif evt == COMM_EVT_EPOCH_DONE_NOTIFY:
-            print(f'[{self.fl_method.get_name()}]: Client {client.name}, Accuracy is {float(data["accuracy"]) / 100.0} %.')
+            logger.log_debug(f'[{self.fl_method.get_name()}]: Client {client.name}, Accuracy is {float(data["accuracy"]) / 100.0} %.')
         elif evt == COMM_HEADER_CMD_TRAINNING_DONE:
-            print(f'[{self.fl_method.get_name()}]: Client {client.name}, Round Done.')
+            logger.log_info(f'[{self.fl_method.get_name()}]: Client {client.name}, Round Done.')
                 
                 
     def __aggregation_thread(self, packed_models_list):
         models_list = [self.fl_method.unpack_client_model(packed_model) for packed_model in packed_models_list]
+
+        profiler.start_measuring(MEASURE_PROBE_AGGR_TIME)
         self.fl_method.aggregate(models_list, self.global_model)
-        print(f"[{self.fl_method.get_name()}]: Aggregration done.")
+        profiler.stop_measuring(MEASURE_PROBE_AGGR_TIME, self.round_number)
+
+        logger.log_info(f"[{self.fl_method.get_name()}]: Aggregration done.")
         eval_loss, eval_accuracy = self.fl_method.start_training()
-        print(f"[{self.fl_method.get_name()}]: Evaulation -> Accuracy: {eval_accuracy}")
+        logger.log_info(f"[{self.fl_method.get_name()}]: Evaulation -> Accuracy: {eval_accuracy}")
 
     def start_training(self):
         self.fl_method.start_training()
 
     def evaluate_model(self):
         self.global_model.eval()
-
+        profiler.start_measuring(MEASURE_PROBE_EVAL_TIME)
         running_loss = 0
         running_corrects = 0
         with torch.no_grad():
@@ -93,5 +99,5 @@ class Server:
 
         eval_loss = running_loss / len(self.test_ds.dataset)                      
         eval_accuracy = running_corrects / len(self.test_ds.dataset)
-
+        profiler.stop_measuring(MEASURE_PROBE_EVAL_TIME, self.round_number)
         return eval_loss, eval_accuracy

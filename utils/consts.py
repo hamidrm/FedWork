@@ -1,3 +1,6 @@
+MEASURE_PROBE_AGGR_TIME = "AggregationTime"
+MEASURE_PROBE_EVAL_TIME = "EvaluationTime"
+
 OUTPUT_DIR = "output"
 
 COMM_HEADER_SIZE = 16

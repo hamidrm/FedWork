@@ -13,7 +13,20 @@ import torchvision.transforms as transforms
 from FedAvg import *
 from Client import *
 from arch.arch import *
-import utils.profiler as profiler
+
+from utils.logger import *
+from utils.profiler import *
+
+logger().set_log_type(logger_log_type.logger_type_debug.value |
+                    logger_log_type.logger_type_error.value |
+                    logger_log_type.logger_type_info.value |
+                    logger_log_type.logger_type_normal.value |
+                    logger_log_type.logger_type_warning.value)
+
+logger().set_stdout(logger_stdout_type.logger_stdout_console.value |
+                  logger_stdout_type.logger_stdout_file.value |
+                  logger_stdout_type.logger_stdout_network.value |
+                  logger_stdout_type.logger_stdout_stringio.value)
 
 arch = FWArch(BaseArch.FeedForwardNet1)
 arch.SetParameter("ActivationFunction", ActivationFunction.ReLUFunction)
@@ -24,15 +37,15 @@ arch.Build()
 
 def client_evt(name, evt, data):
    if evt == COMM_EVT_TRAINING_START:
-      print(f'Client Event, Client: "{name}", Evt: "{evt}", Data:\n "{data}"')
+      logger.log_info(f'Client Event, Client: "{name}", Evt: "{evt}", Data:\n "{data}"')
 
 def server_evt(evt, client, data):
-   print(f'Server Event, Client: "{client.name}", Evt: "{evt}", Data:\n "{data}"')
+   logger.log_info(f'Server Event, Client: "{client.name}", Evt: "{evt}", Data:\n "{data}"')
 
 def create_local_clients(train_ds_list: list, clients_list: list):
    for client_id in range(len(train_ds_list)):
       model = arch.CreateModel()
-      client = Client(f"Client#{client_id}", IpAddr("127.0.0.1", 9913), TrainingHyperParameters(0.001, 0.9, 1e-7), train_ds_list[client_id], model, optim.SGD, nn.CrossEntropyLoss, "cpu")
+      client = Client(f"Client#{client_id}", IpAddr("127.0.0.1", 9915), TrainingHyperParameters(0.001, 0.9, 1e-7), train_ds_list[client_id], model, optim.SGD, nn.CrossEntropyLoss, "cpu")
       #client.send_notification_to_server(COMM_EVT_TRAINING_START, 5, 0)
       clients_list.append(client)
    
@@ -49,13 +62,13 @@ fedavg = FedAvg()
 
 
 
-train_ds_list, test_ds = create_datasets(4, "MNIST", True, 0.5, 128, 256, True)
+train_ds_list, test_ds = create_datasets(20, "MNIST", True, 0.5, 128, 256, True)
 
 weights = [(float(len(dataloader.dataset)) / float(sum([len(dataloader.dataset) for  dataloader in train_ds_list]))) for dataloader in train_ds_list]
 fedavg.args = weights
 
 model = arch.CreateModel()
-server = Server(IpAddr("127.0.0.1", 9913), fedavg, test_ds, model, optim.SGD, nn.CrossEntropyLoss, "cpu")
+server = Server(IpAddr("127.0.0.1", 9915), fedavg, test_ds, model, optim.SGD, nn.CrossEntropyLoss, "cpu")
 clients_list = []
 create_local_clients(train_ds_list, clients_list)
 server.start_training()

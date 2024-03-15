@@ -1,8 +1,8 @@
 # Server
 import torch
 import torch.nn as nn
-
-import threading
+import utils.logger as logger
+import utils.profiler as profiler
 from dataset.dataset import *
 from ServerComm import *
 from utils.consts import *
@@ -19,11 +19,13 @@ class Client:
         self.executer = executer
         self.dataset = train_ds
         self.name = name
+        self.logger = logger.logger()
+        self.profiler = profiler.profiler()
 
     def __client_evt_cb(self, name, evt, data):
         if evt == COMM_EVT_TRAINING_START:
             self.StartTraining(data["epochs_num"], data["milestone_list"], data["gamma"])
-            print(f'[{name}]: Training done (Epochs: {data["epochs_num"]}).')
+            self.logger.log(f'[{name}]: Training done (Epochs: {data["epochs_num"]}).', logger.logger_log_type.logger_type_info)
 
     def set_model(self, model):
         self.client_model.load_state_dict(model.state_dict())

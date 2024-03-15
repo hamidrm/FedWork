@@ -1,6 +1,5 @@
 import pickle
 
-
 class ClientData:
 
     def __init__(self, name=None, addr=None, processing_power=None, connection=None):
@@ -12,7 +11,7 @@ class ClientData:
 
 
 class IpAddr:
-    def __init__(self, ip="127.0.0.1", port=38943):
+    def __init__(self, ip="127.0.0.1", port=12345):
         self.ip = ip
         self.port = port
     def get_ip(self):
@@ -27,6 +26,7 @@ class TrainingHyperParameters:
         self.weight_decay = weight_decay
 
 class Common:
+
     @staticmethod
     def data_convert_to_bytes(data):
         if isinstance(data, str):

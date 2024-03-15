@@ -5,7 +5,7 @@ import torch.nn as nn
 from FederatedLearningClass import *
 import random
 
-num_of_nodes_contributor = 3
+num_of_nodes_contributor = 5
 
 class FedAvg(FederatedLearningClass):
 
