@@ -8,7 +8,7 @@ from ServerComm import *
 from utils.consts import *
 from FederatedLearningClass import *
 from ClientComm import *
-
+from utils.logger import *
 
 class Client:
     def __init__(self, name, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, executer = "cpu"):
@@ -19,13 +19,13 @@ class Client:
         self.executer = executer
         self.dataset = train_ds
         self.name = name
-        self.logger = logger.logger()
-        self.profiler = profiler.profiler()
+        logger.log_debug(f"[{name}]: Initialization done.")
 
     def __client_evt_cb(self, name, evt, data):
         if evt == COMM_EVT_TRAINING_START:
+            logger.log_info(f'[{name}]: Training is starting...')
             self.StartTraining(data["epochs_num"], data["milestone_list"], data["gamma"])
-            self.logger.log(f'[{name}]: Training done (Epochs: {data["epochs_num"]}).', logger.logger_log_type.logger_type_info)
+            logger.log_info(f'[{name}]: Training done (Epochs: {data["epochs_num"]}).')
 
     def set_model(self, model):
         self.client_model.load_state_dict(model.state_dict())
@@ -71,7 +71,12 @@ class Client:
 
             train_loss = running_loss / len(self.dataset.dataset)
             train_accuracy = running_corrects / len(self.dataset.dataset)
-            self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_EPOCH_DONE, int(train_accuracy.item() * 10000))
+            
+            epoch_info = {}
+            epoch_info["accuracy"] = train_accuracy.item()
+            epoch_info["loss"] = train_loss
+            
+            self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_EPOCH_DONE, 0, epoch_info)
             if lr_scheduler_milestone_list is not None:
                 scheduler.step()
         self.client_comm.send_data_to_server(self.client_model.state_dict())

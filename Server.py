@@ -23,12 +23,13 @@ class Server:
         self.fl_method = fl_method
         self.round_number = 0
         self.fl_method.server = self
+        logger.log_debug(f"Server initilization done.")
 
     def start_round_ex(self, epochs, lr_mileston, gamma):
         clients = self.server_comm.get_clients()
         clients_subset = self.fl_method.select_clients(clients)
         training_conf = {}
-
+        logger.log_debug(f"Start new round (with dedicated configuration)")
         for client_name in clients_subset.keys():
             training_conf["epochs_num"] = epochs[client_name]
             training_conf["milestone_list"] = lr_mileston[client_name]
@@ -43,22 +44,36 @@ class Server:
         training_conf["epochs_num"] = epochs
         training_conf["milestone_list"] = lr_mileston
         training_conf["gamma"] = gamma
+        logger.log_debug(f"Start new round (epochs={epochs}, lr_mileston={lr_mileston}, gamma={gamma})")
         for client_name in clients_subset.keys():
             self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
 
     def __server_evt_fn(self, evt, client, data):
         if evt == COMM_EVT_MODEL:
+
+            profiler.save_variable(MEASURE_PROBE_TOTAL_RCVD_BYTES, self.server_comm.download_total_size, self.round_number)
+            profiler.save_variable(MEASURE_PROBE_TOTAL_SENT_BYTES, self.server_comm.upload_total_size, self.round_number)
+            profiler.save_variable(MEASURE_PROBE_DATA_RCVD_BYTES, self.server_comm.download_data_size, self.round_number)
+            profiler.save_variable(MEASURE_PROBE_DATA_SENT_BYTES, self.server_comm.upload_data_size, self.round_number)
+
+            logger.log_debug(f"The trained model received from '{client.name}'.")
             self.received_models.append(data)
-            self.logger.log(f"[{self.fl_method.get_name()}]: Trained model received from '{client.name}'.", logger.logger_log_type.logger_type_info)
+            logger.log_info(f"[{self.fl_method.get_name()}]: Trained model received from '{client.name}'.")
             if self.fl_method.ready_to_aggregate(len(self.received_models)):
+                logger.log_debug(f"Start to aggregate in a new thread.")
                 model_list = [copy.deepcopy(model) for model in self.received_models]
                 aggregation_thread = threading.Thread(target=self.__aggregation_thread, args=(model_list, ))
                 aggregation_thread.start()
                 self.received_models.clear()
         elif evt == COMM_EVT_EPOCH_DONE_NOTIFY:
-            logger.log_debug(f'[{self.fl_method.get_name()}]: Client {client.name}, Accuracy is {float(data["accuracy"]) / 100.0} %.')
+            logger.log_debug(f"The notification received from '{client.name}'.")
+
+            profiler.save_variable(MEASURE_PROBE_CLIENT_ACC+client.name, data["accuracy"], self.round_number)
+            profiler.save_variable(MEASURE_PROBE_CLIENT_LOSS+client.name, data["loss"], self.round_number)
+
+            logger.log_debug(f'[{self.fl_method.get_name()}]: Client {client.name}, Accuracy is {data["accuracy"]}, Loss: {data["loss"]}.')
         elif evt == COMM_HEADER_CMD_TRAINNING_DONE:
-            logger.log_info(f'[{self.fl_method.get_name()}]: Client {client.name}, Round Done.')
+            logger.log_info(f'[{self.fl_method.get_name()}]: Client {client.name}, The round is done.')
                 
                 
     def __aggregation_thread(self, packed_models_list):
@@ -70,13 +85,15 @@ class Server:
 
         logger.log_info(f"[{self.fl_method.get_name()}]: Aggregration done.")
         eval_loss, eval_accuracy = self.fl_method.start_training()
-        logger.log_info(f"[{self.fl_method.get_name()}]: Evaulation -> Accuracy: {eval_accuracy}")
+        logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy}")
 
     def start_training(self):
+        logger.log_debug(f"Broadcasting start training command...")
         self.fl_method.start_training()
 
     def evaluate_model(self):
         self.global_model.eval()
+        logger.log_debug(f"Global model evaluation is started...")
         profiler.start_measuring(MEASURE_PROBE_EVAL_TIME)
         running_loss = 0
         running_corrects = 0
@@ -100,4 +117,5 @@ class Server:
         eval_loss = running_loss / len(self.test_ds.dataset)                      
         eval_accuracy = running_corrects / len(self.test_ds.dataset)
         profiler.stop_measuring(MEASURE_PROBE_EVAL_TIME, self.round_number)
+        logger.log_debug(f"Global model evaluation is done...")
         return eval_loss, eval_accuracy
