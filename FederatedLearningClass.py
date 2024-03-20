@@ -14,13 +14,21 @@ class FederatedLearningClass(ABC):
         pass
 
     @abstractmethod
+    def init_method(self):
+        pass
+
+    @abstractmethod
     def aggregate(self, clients_model, global_model):
         pass
 
     @abstractmethod
-    def select_clients(self, all_clients):
+    def select_clients_to_train(self, all_clients):
         pass
     
+    @abstractmethod
+    def select_clients_to_update(self, all_clients):
+        pass
+
     @abstractmethod
     def start_training(self):
         pass

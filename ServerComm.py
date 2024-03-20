@@ -69,9 +69,9 @@ class ServerComm:
                 client_data.listener_thread.start()
                 client_name = info["name"]
                 self.clients[info["name"]] = client_data
-                logger.log_debug(f"Client '{client_name}' on address '{address}' has been introduced successfully.")
+                logger.log_debug(f"Client '{client_name}' on address '{address}' has been successfully introduced and added to the clients' pool.")
             else:
-                logger.log_error(f"Client '{client_name}' on address '{address}' introduction error (introduction needed)!")
+                logger.log_error(f"Client '{client_name}' on address '{address}' introduction failed (introduction needed but wrong command received)!")
                 connection.close()
         else:
             logger.log_error(f"Client '{client_name}' on address '{address}' introduction error (packet_sign)!")
@@ -143,7 +143,7 @@ class ServerComm:
 
                         payload += chunk
 
-                    data = pickle.loads(bytes(payload))
+                    data = Common.data_convert_from_bytes(bytes(payload))
                     self.server_evt_fn(COMM_EVT_MODEL, client_data, data)
                 elif packet_type == COMM_HEADER_TYPES_NOTI:
                     logger.log_debug(f"Notification received from '{client_data.name}' (packet_param1={packet_param1}).")
@@ -161,8 +161,9 @@ class ServerComm:
         return self.clients
     
     def send_data(self, client_name, data):
-        logger.log_debug(f"Sending data to '{client_name}'(size of data = {len(data_bytes_array)})")
         data_bytes_array = Common.data_convert_to_bytes(data)
+        logger.log_debug(f"Sending data to '{client_name}'(size of data = {len(data_bytes_array)})")
+        
         header_data   = struct.pack(COMM_HEADER_FORMAT, COMM_HEADER_SIGN, len(data_bytes_array), COMM_HEADER_TYPES_DATA, 0, 0)
         self.upload_total_size += len(header_data) + len(data_bytes_array)
         self.upload_data_size += len(data_bytes_array)

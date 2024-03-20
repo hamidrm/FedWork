@@ -32,7 +32,7 @@ arch = FWArch(BaseArch.FeedForwardNet1)
 arch.SetParameter("ActivationFunction", ActivationFunction.ReLUFunction)
 arch.SetParameter("NumberOfInputNodes", 28*28)
 arch.SetParameter("NumberOfHiddenNodes", 128)
-arch.SetParameter("NumberOfOutputNodes", 10)
+arch.SetParameter("NumberOfOutputNodes",  10)
 arch.Build()
 
 def client_evt(name, evt, data):
@@ -45,7 +45,7 @@ def server_evt(evt, client, data):
 def create_local_clients(train_ds_list: list, clients_list: list):
    for client_id in range(len(train_ds_list)):
       model = arch.CreateModel()
-      client = Client(f"Client#{client_id}", IpAddr("127.0.0.1", 9916), TrainingHyperParameters(0.001, 0.9, 1e-7), train_ds_list[client_id], model, optim.SGD, nn.CrossEntropyLoss, "cpu")
+      client = Client(f"Client#{client_id}", IpAddr("127.0.0.1", 9911), TrainingHyperParameters(0.001, 0.9, 1e-7), train_ds_list[client_id], model, optim.SGD, nn.CrossEntropyLoss, "cpu")
       #client.send_notification_to_server(COMM_EVT_TRAINING_START, 5, 0)
       clients_list.append(client)
    
@@ -68,7 +68,7 @@ weights = [(float(len(dataloader.dataset)) / float(sum([len(dataloader.dataset) 
 fedavg.args = weights
 
 model = arch.CreateModel()
-server = Server(IpAddr("127.0.0.1", 9916), fedavg, test_ds, model, optim.SGD, nn.CrossEntropyLoss, "cpu")
+server = Server(IpAddr("127.0.0.1", 9911), fedavg, test_ds, model, optim.SGD, nn.CrossEntropyLoss, "cpu")
 clients_list = []
 create_local_clients(train_ds_list, clients_list)
 server.start_training()

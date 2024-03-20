@@ -4,17 +4,24 @@ import torch
 import torch.nn as nn
 from FederatedLearningClass import *
 import random
+from utils.logger import *
 
 num_of_nodes_contributor = 5
 
 class FedAvg(FederatedLearningClass):
 
     def __init__(self):
+        super().__init__()
         super().set_hyperparameters(0.0001, 0.9, 1e-7)
 
     def get_name(self):
         return "FedAvg"
     
+    def init_method(self):
+        clients_pool = self.server.fetch_clients_pool()
+        logger.log_info(f"Clients's pool: {clients_pool}")
+        pass
+
     def aggregate(self, clients_models, global_model):
         global_dict = global_model.state_dict()
         clients_weights = self.args
@@ -27,11 +34,15 @@ class FedAvg(FederatedLearningClass):
     def start_training(self):
         eval_loss, eval_accuracy = self.server.evaluate_model()
         self.server.start_round(5, [100, 200], 0.0001)
+
         return eval_loss, eval_accuracy
 
-    def select_clients(self, all_clients):
+    def select_clients_to_train(self, all_clients):
         return dict(random.sample(list(all_clients.items()), num_of_nodes_contributor))
-    
+
+    def select_clients_to_update(self, all_clients):
+        return all_clients
+
     def pack_client_model(self, raw_model):
         return raw_model
 

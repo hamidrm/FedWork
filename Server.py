@@ -23,6 +23,7 @@ class Server:
         self.fl_method = fl_method
         self.round_number = 0
         self.fl_method.server = self
+        fl_method.init_method()
         logger.log_debug(f"Server initilization done.")
 
     def start_round_ex(self, epochs, lr_mileston, gamma):
@@ -38,7 +39,7 @@ class Server:
 
     def start_round(self, epochs, lr_mileston: list, gamma = 0.01):
         clients = self.server_comm.get_clients()
-        clients_subset = self.fl_method.select_clients(clients)
+        clients_subset = self.fl_method.select_clients_to_train(clients)
         training_conf = {}
         self.round_number += 1
         training_conf["epochs_num"] = epochs
@@ -47,6 +48,10 @@ class Server:
         logger.log_debug(f"Start new round (epochs={epochs}, lr_mileston={lr_mileston}, gamma={gamma})")
         for client_name in clients_subset.keys():
             self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
+
+    def fetch_clients_pool(self):
+        return self.server_comm.clients
+    
 
     def __server_evt_fn(self, evt, client, data):
         if evt == COMM_EVT_MODEL:
@@ -83,7 +88,10 @@ class Server:
         self.fl_method.aggregate(models_list, self.global_model)
         profiler.stop_measuring(MEASURE_PROBE_AGGR_TIME, self.round_number)
 
-        logger.log_info(f"[{self.fl_method.get_name()}]: Aggregration done.")
+        for client in self.fl_method.select_clients_to_update(self.server_comm.clients):
+            self.server_comm.send_data(client, self.global_model)
+
+        logger.log_info(f"[{self.fl_method.get_name()}]: The aggregation has been completed, and clients are now up to date.")
         eval_loss, eval_accuracy = self.fl_method.start_training()
         logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy}")
 

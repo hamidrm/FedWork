@@ -27,7 +27,7 @@ class ClientComm:
 
     def connect_to_server(self):
         self.socket.connect((self.host, self.port))
-        self.client_evt_fn(self.name, COMM_EVT_CONNECTED, None)
+        self.client_evt_fn(COMM_EVT_CONNECTED, None)
         self.send_intro_to_server()
 
     def __recv_from_server(self):
@@ -60,24 +60,44 @@ class ClientComm:
                         pass
                     elif packet_param1 == COMM_HEADER_CMD_TURNOFF:
                         self.alive = False
-                        self.client_evt_fn(self.name, COMM_EVT_TURNOFF, None)
+                        self.client_evt_fn(COMM_EVT_TURNOFF, None)
                     elif packet_param1 == COMM_HEADER_CMD_START_TRAINNING:
                         payload = None
                         if payload_size != 0:
                             payload = self.socket.recv(payload_size) # Read the payload
                             self.download_data_size += payload_size
-                        self.client_evt_fn(self.name, COMM_EVT_TRAINING_START, Common.data_convert_from_bytes(payload))
+                        self.client_evt_fn(COMM_EVT_TRAINING_START, Common.data_convert_from_bytes(payload))
+                    elif packet_param1 == COMM_HEADER_CMD_GET_TOTAL_EPOCHS:
+                        self.client_evt_fn(COMM_EVT_EPOCHS_TOTAL_COUNT_REQ, None)
+                    elif packet_param1 == COMM_HEADER_CMD_GET_TRAINING_COUNT:
+                        self.client_evt_fn(COMM_EVT_TRAINING_TOTAL_COUNT_REQ, None)
                     else:
                         logger.log_error(f'Invalid command on client"{self.name}".')
                 elif packet_type == COMM_HEADER_TYPES_DATA:
                     logger.log_debug(f"[{self.name}]: Received data (payload_size={payload_size}).")
                     self.download_data_size += payload_size
-                    payload = self.socket.recv(payload_size) # Read the payload
-                    self.client_evt_fn(self.name, COMM_EVT_MODEL, Common.data_convert_from_bytes(payload))
+
+                    recv_buffer_size = self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+                    payload = []
+                    while True:
+                        try:
+                            chunk = self.socket.recv(min(recv_buffer_size, payload_size - len(payload)))
+                            if not chunk:
+                                break
+                        except socket.timeout:
+                            logger.log_error(f"[{self.name}] Timeout in model receiving!")
+                            continue
+                        except ConnectionResetError:
+                            logger.log_error(f"[{self.name}] disconnected unexpectedly during model receiving!")
+                            break
+
+                        payload += chunk
+
+                    self.client_evt_fn(COMM_EVT_MODEL, Common.data_convert_from_bytes(bytes(payload)))
                 elif packet_type == COMM_HEADER_TYPES_NOTI:
                     logger.log_debug(f"[{self.name}]: Received notification (param1={packet_param1}).")
                     pass
-        self.client_evt_fn(self.name, COMM_EVT_DISCONNECTED, {"reason":"server"})
+        self.client_evt_fn(COMM_EVT_DISCONNECTED, {"reason":"server"})
         logger.log_debug(f"[{self.name}]: Receiving thread has been finished.")
 
     def send_notification_to_server(self, notify_evt, param, data = None):
@@ -108,7 +128,7 @@ class ClientComm:
         logger.log_debug(f"[{self.name}]: Disconnecting...")
         self.alive = False
         self.socket.close()
-        self.client_evt_fn(self.name, COMM_EVT_DISCONNECTED, {"reason":"client"})
+        self.client_evt_fn(COMM_EVT_DISCONNECTED, {"reason":"client"})
 
     def send_intro_to_server(self):
         info = {}
