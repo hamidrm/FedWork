@@ -5,6 +5,7 @@ import socket
 from io import StringIO
 import utils.consts
 import utils.common as common
+import inspect
 
 class logger_stdout_type(Enum):
     logger_stdout_console = 1
@@ -99,9 +100,16 @@ class logger:
         if self.log_type_mask & int(type.value) == 0:
             return
         
+        caller_frame = inspect.currentframe().f_back.f_back
+        caller_info = inspect.getframeinfo(caller_frame)
+        caller_filename = os.path.basename(caller_info.filename)
+
         log_text = ""
         time = datetime.now().strftime("%H:%M:%S")
         log_text = f"[{time}]"
+
+        log_text += f"[{caller_filename}]"
+
         if self.tag != "":
             log_text = f"{log_text}[{self.tag}]"
         

@@ -5,9 +5,10 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 from datetime import datetime
+from utils.logger import *
 
 def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_iid_level=0.1, train_batch_size=64, test_batch_size=64, num_workers=8, save_graph=True, add_info_to_figure=False):
-    print(f'Heterogeneous: {heterogeneous}, Non-i.i.d Level: {non_iid_level}, Train Batch Size: {train_batch_size}, Test Batch Size: {test_batch_size}')
+    logger.log_info(f'Heterogeneous: {heterogeneous}, Non-i.i.d Level: {non_iid_level}, Train Batch Size: {train_batch_size}, Test Batch Size: {test_batch_size}')
     if ds_type == "MNIST":
         transform_train = transforms.Compose([
             transforms.ToTensor(),
@@ -80,14 +81,14 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         train_group_index_list = []
         label_len_list = []
         labels_list_size = len(train_groups_labels[subset_index])
-        print(f"Index: {subset_index} is {train_groups_labels}")
+
         each_label_standard_size = train_dataset_subsets_len[subset_index] // labels_list_size
         for label in range(labels_list_size - 1):
             label_len = each_label_standard_size + (torch.randint(int((non_iid_level / 2.0) * each_label_standard_size) // -2, int((non_iid_level / 2.0) * each_label_standard_size) // 2, (1,)).item() if non_iid_level > 0.0 else 0)
             label_len_list.append(label_len)
             train_dataset_subsets_len[subset_index] -= label_len
         label_len_list.append(train_dataset_subsets_len[subset_index])
-        print(label_len_list)
+
 
 
         for label_index,label in enumerate(train_groups_labels[subset_index]):
@@ -97,7 +98,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
             needed_length = int(label_len_list[label_index] * non_iid_level)
             random_indices = random.sample(range(len(indices)), min(len(indices), needed_length) )
             needed_indices = [indices[i] for i in random_indices]
-            print(f"asas: {label} is {len(random_indices)} of {len(indices)}")
+
             train_group_index_list += needed_indices
 
         

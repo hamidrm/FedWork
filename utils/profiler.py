@@ -13,8 +13,10 @@ class profiler:
     def __init__(self):
         if not self.__initialized:
             self.__initialized = True
-            self.profile_list = {}
+            self.profiles_list = {}
             self.profiles_start = {}
+            self.profiles_lock = {}
+            self.vars_val_list = {}
             self._variables_to_monitor = {}
 
     def add_variable_to_monitor(self, variable_name, obj, attribute_name):
@@ -46,29 +48,40 @@ class profiler:
     def stop_measuring(probe_name, key):
         profiler().measure_time(probe_name, key)
 
+    @staticmethod
+    def save_variable(probe_name, value, key):
+        profiler().store_value(probe_name, value, key)
+
+    def store_value(self, probe_name, value, key = 0):
+        if probe_name not in self.vars_val_list.keys():
+            self.vars_val_list[probe_name] = []
+        
+        self.vars_val_list[probe_name].append(((time.time(), key, value)))
 
     def __add_time_profiler(self, name: str):
         self.profiles_start[name] = 0
-        self.profiles_lock = False
-        self.profile_list[name] = []
+        self.profiles_lock[name] = False
+        self.profiles_list[name] = []
         
     def start_time_profile(self, name: str):
-        if self.profiles_lock:
-            logger.log_error(f"Probe [{name}] is busy now!")
-            return
-        self.profiles_lock = True
         if name not in self.profiles_start.keys():
             self.__add_time_profiler(name)
+    
+        if self.profiles_lock[name]:
+            logger.log_error(f"Probe '{name}' is busy now!")
+            return
+        self.profiles_lock[name] = True
+
         self.profiles_start[name] = time.time_ns() // 1000
         
 
     def measure_time(self, name: str, key=0):
         elapsed_us = (time.time_ns() // 1000) - self.profiles_start[name]
-        self.profile_list[name].append((time.time(), key, elapsed_us))
-        self.profiles_lock = False
+        self.profiles_list[name].append((time.time(), key, elapsed_us))
+        self.profiles_lock[name] = False
 
     def dump_time_profile_list(self):
-        return self.profile_list
+        return self.profiles_list
     
     def dump_variables_changes_list(self):
         return self._variables_to_monitor

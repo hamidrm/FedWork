@@ -6,6 +6,13 @@ from tkinter import filedialog
 
 class LogViewer:
     def __init__(self, root):
+        # Create checkbox variables
+        self.types_checkbox_vars = []
+
+        # Checkbox options
+        types_options = ["Debug Log", "Information Log", "Normal Log", "Warning Log", "Error Log"]
+
+
         self.root = root
         self.root.title("FedWork Log Viewer")
         self.root.resizable(False, False) 
@@ -37,7 +44,7 @@ class LogViewer:
         self.save_button.grid(row=2, column=3)
 
         self.log_text_frame = tk.Frame(root)
-        self.log_text_frame.grid(row=3, columnspan=4, sticky="nsew")
+        self.log_text_frame.grid(row=3, columnspan=5, sticky="nsew")
         self.log_text_frame.grid_rowconfigure(0, weight=1)
         self.log_text_frame.grid_columnconfigure(0, weight=1)
 
@@ -55,6 +62,13 @@ class LogViewer:
         self.log_text.tag_config("color_16", foreground="red")
         self.log_text.configure(xscrollcommand=self.scrollbar_x.set, yscrollcommand=self.scrollbar_y.set)
         self.log_text.config(state=tk.NORMAL)
+        index = 0
+        for option in types_options:
+            var = tk.IntVar(value=1)
+            self.types_checkbox_vars.append(var)
+            self.checkbox = tk.Checkbutton(root, text=option, variable=var)
+            self.checkbox.grid(row=4, column=index, sticky="nsew")
+            index += 1
 
         self.server_socket = None
         self.receive_thread = None
@@ -100,8 +114,13 @@ class LogViewer:
             msg = log_message["msg"]
             log_type = log_message["type"]
 
-            self.log_text.insert(tk.END, msg + "\n", "color_" + str(log_type))
-            self.log_text.see(tk.END)
+            if (log_type == 1 and self.types_checkbox_vars[2].get() == 1) or \
+                (log_type == 2 and self.types_checkbox_vars[0].get() == 1) or \
+                (log_type == 4 and self.types_checkbox_vars[1].get() == 1) or \
+                (log_type == 8 and self.types_checkbox_vars[3].get() == 1) or \
+                (log_type == 16 and self.types_checkbox_vars[4].get() == 1):
+                self.log_text.insert(tk.END, msg + "\n", "color_" + str(log_type))
+                self.log_text.see(tk.END)
 
         self.server_port_entry.config(state=tk.NORMAL)
         self.server_ip_entry.config(state=tk.NORMAL)

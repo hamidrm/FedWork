@@ -8,6 +8,7 @@ class ClientData:
         self.connection = connection
         self.processing_power = processing_power
         self.listener_thread = None
+        self.training_count = 0
 
 
 class IpAddr:
