@@ -52,6 +52,16 @@ class Server:
     def fetch_clients_pool(self):
         return self.server_comm.clients
     
+    def start_periodic_mode(self, client_name, epochs, lr_mileston, gamma, interval):
+        periodic_cfg = {}
+        periodic_cfg["epochs_num"] = epochs
+        periodic_cfg["milestone_list"] = lr_mileston
+        periodic_cfg["gamma"] = gamma
+        periodic_cfg["interval"] = interval
+        self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_PERIODIC_MODE, 0, periodic_cfg)
+
+    def stop_periodic_mode(self, client_name):
+        self.server_comm.send_command(client_name, COMM_HEADER_CMD_STOP_PERIODIC_MODE, 0, None)
 
     def __server_evt_fn(self, evt, client, data):
         if evt == COMM_EVT_MODEL:
@@ -79,7 +89,12 @@ class Server:
             logger.log_debug(f'[{self.fl_method.get_name()}]: Client {client.name}, Accuracy is {data["accuracy"]}, Loss: {data["loss"]}.')
         elif evt == COMM_HEADER_CMD_TRAINNING_DONE:
             logger.log_info(f'[{self.fl_method.get_name()}]: Client {client.name}, The round is done.')
-                
+        elif evt == COMM_EVT_CONNECTED:
+            logger.log_info(f'{client.name} is connected.')
+        elif evt == COMM_EVT_DISCONNECTED:
+            logger.log_info(f'{client.name} is disconnected.')
+        else:
+            logger.log_warning(f"Undefined event received (evt={evt})!")
                 
     def __aggregation_thread(self, packed_models_list):
         models_list = [self.fl_method.unpack_client_model(packed_model) for packed_model in packed_models_list]
@@ -93,7 +108,7 @@ class Server:
 
         logger.log_info(f"[{self.fl_method.get_name()}]: The aggregation has been completed, and clients are now up to date.")
         eval_loss, eval_accuracy = self.fl_method.start_training()
-        logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy}")
+        logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy} , Loss: {eval_loss}")
 
     def start_training(self):
         logger.log_debug(f"Broadcasting start training command...")

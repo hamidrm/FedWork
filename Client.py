@@ -50,8 +50,12 @@ class Client:
         elif evt == COMM_EVT_MODEL:
             logger.log_info(f'[{self.name}]: New model received.')
             self.set_model(data)
+        elif evt == COMM_EVT_CONNECTED:
+            logger.log_info(f'[{self.name}]: is connected.')
+        elif evt == COMM_EVT_DISCONNECTED:
+            logger.log_info(f'[{self.name}]: is disconnected.')
         else:
-            logger.log_warning(f"Undefined event received!")
+            logger.log_warning(f"Undefined event received (evt={evt})!")
 
     def set_model(self, model):
         self.client_model.load_state_dict(model.state_dict())
@@ -80,7 +84,7 @@ class Client:
 
     def __periodic_training_thread(self, event, interval):
         while self.is_periodic_training_enabled:
-            event.wait(interval)
+            event.wait(float(interval) / 1000.0)
             if self.is_periodic_training_enabled:
                 self.StartTraining(self.periodic_training_epochs, self.periodic_training_lr_mileston, self.periodic_training_gamma)
             logger.log_debug(f'[{self.name}]: Periodic training tick!')

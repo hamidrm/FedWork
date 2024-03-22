@@ -18,8 +18,6 @@ class FedAvg(FederatedLearningClass):
         return "FedAvg"
     
     def init_method(self):
-        clients_pool = self.server.fetch_clients_pool()
-        logger.log_info(f"Clients's pool: {clients_pool}")
         pass
 
     def aggregate(self, clients_models, global_model):
@@ -32,13 +30,20 @@ class FedAvg(FederatedLearningClass):
         global_model.load_state_dict(global_dict)
 
     def start_training(self):
+        logger.log_normal(f"===================================================")
         eval_loss, eval_accuracy = self.server.evaluate_model()
-        self.server.start_round(5, [100, 200], 0.0001)
-
+        logger.log_normal(f"Round {self.server.round_number} is starting...")
+        logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
+        if self.server.round_number != 100:
+            self.server.start_round(5, [100, 200], 0.0001)
+        else:
+            logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
         return eval_loss, eval_accuracy
 
     def select_clients_to_train(self, all_clients):
-        return dict(random.sample(list(all_clients.items()), num_of_nodes_contributor))
+        #selected_clients = dict(random.sample(list(all_clients.items()), num_of_nodes_contributor))
+        #logger.log_normal(f"Selected Clients: {selected_clients.keys()}")
+        return all_clients
 
     def select_clients_to_update(self, all_clients):
         return all_clients
@@ -50,6 +55,7 @@ class FedAvg(FederatedLearningClass):
         return packed_model
     
     def ready_to_aggregate(self, num_of_received_model: int) -> bool:
+        logger.log_normal(f"Number of trained models: {num_of_received_model}")
         if num_of_received_model == num_of_nodes_contributor:
             return True
         else:

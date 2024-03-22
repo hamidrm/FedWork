@@ -64,13 +64,39 @@ class ClientComm:
                     elif packet_param1 == COMM_HEADER_CMD_START_TRAINNING:
                         payload = None
                         if payload_size != 0:
-                            payload = self.socket.recv(payload_size) # Read the payload
+                            try:
+                                payload = self.socket.recv(payload_size) # Read the payload
+                                if not payload:
+                                    break
+                            except socket.timeout:
+                                logger.log_error(f"[{self.name}] Timeout in receiving start training data!")
+                                continue
+                            except ConnectionResetError:
+                                logger.log_error(f"[{self.name}] disconnected unexpectedly during receiving start training data!")
+                                break
                             self.download_data_size += payload_size
                         self.client_evt_fn(COMM_EVT_TRAINING_START, Common.data_convert_from_bytes(payload))
                     elif packet_param1 == COMM_HEADER_CMD_GET_TOTAL_EPOCHS:
                         self.client_evt_fn(COMM_EVT_EPOCHS_TOTAL_COUNT_REQ, None)
                     elif packet_param1 == COMM_HEADER_CMD_GET_TRAINING_COUNT:
                         self.client_evt_fn(COMM_EVT_TRAINING_TOTAL_COUNT_REQ, None)
+                    elif packet_param1 == COMM_HEADER_CMD_START_PERIODIC_MODE:
+                        payload = None
+                        if payload_size != 0:
+                            try:
+                                payload = self.socket.recv(payload_size) # Read the payload
+                                if not payload:
+                                    break
+                            except socket.timeout:
+                                logger.log_error(f"[{self.name}] Timeout in receiving start training data!")
+                                continue
+                            except ConnectionResetError:
+                                logger.log_error(f"[{self.name}] disconnected unexpectedly during receiving start training data!")
+                                break
+                            self.download_data_size += payload_size
+                        self.client_evt_fn(COMM_EVT_START_PERIODIC_TRAINING, Common.data_convert_from_bytes(payload))
+                    elif packet_param1 == COMM_HEADER_CMD_STOP_PERIODIC_MODE:
+                        self.client_evt_fn(COMM_EVT_STOP_PERIODIC_TRAINING, None)
                     else:
                         logger.log_error(f'Invalid command on client"{self.name}".')
                 elif packet_type == COMM_HEADER_TYPES_DATA:
