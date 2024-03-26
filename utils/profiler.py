@@ -52,6 +52,9 @@ class profiler:
     def save_variable(probe_name, value, key):
         profiler().store_value(probe_name, value, key)
 
+    def is_probe_available(self, probe_name):
+        return ((probe_name in self.vars_val_list.keys()) or (probe_name in self.profiles_start.keys()))
+
     def store_value(self, probe_name, value, key = 0):
         if probe_name not in self.vars_val_list.keys():
             self.vars_val_list[probe_name] = []

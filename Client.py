@@ -25,6 +25,7 @@ class Client:
         self.periodic_training_epochs = 5
         self.periodic_training_lr_mileston = []
         self.periodic_training_gamma = 0
+        self.is_training_lock = threading.Lock()
         self.client_comm = ClientComm(name, ip_addr.get_ip(), ip_addr.get_port(), self.__client_evt_cb)
         logger.log_debug(f"[{name}]: Initialization done.")
 
@@ -91,7 +92,7 @@ class Client:
 
 
     def StartTraining(self, epochs_num, lr_scheduler_milestone_list : list = None, gamma : float = 0.1):
-
+        self.is_training_lock.acquire()
         if lr_scheduler_milestone_list is not None:
             scheduler = torch.optim.lr_scheduler.MultiStepLR(self.client_optimizer,
                                                      milestones=lr_scheduler_milestone_list,
@@ -138,3 +139,4 @@ class Client:
                 scheduler.step()
         self.client_comm.send_data_to_server(self.client_model.state_dict())
         self.client_comm.send_notification_to_server(COMM_HEADER_CMD_TRAINNING_DONE, 0)
+        self.is_training_lock.release()

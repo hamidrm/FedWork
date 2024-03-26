@@ -119,7 +119,7 @@ class logger:
             painted_text = log_text
 
             if type.value == logger_log_type.logger_type_normal.value:
-                painted_text = self.cosnole_color_white + painted_text
+                painted_text = self.cosnole_color_white + msg
             elif type.value == logger_log_type.logger_type_info.value:
                 painted_text = self.cosnole_color_green + painted_text
             elif type.value == logger_log_type.logger_type_debug.value:
@@ -136,7 +136,7 @@ class logger:
                 final_text = log_text
 
                 if type.value == logger_log_type.logger_type_normal.value:
-                    final_text = "[NORMAL]" + final_text
+                    final_text = msg
                 elif type.value == logger_log_type.logger_type_info.value:
                     final_text = "[INFO]" + final_text
                 elif type.value == logger_log_type.logger_type_debug.value:
@@ -154,7 +154,12 @@ class logger:
             
             data_to_send = {}
             data_to_send["type"] = type.value
-            data_to_send["msg"] = log_text
+
+            if type.value != logger_log_type.logger_type_normal.value:
+                data_to_send["msg"] = log_text
+            else:
+                data_to_send["msg"] = msg
+            
             self.log_server_socket.sendto(common.Common.data_convert_to_bytes(data_to_send), (self.log_server_ip, self.log_server_port))
 
         if (self.stdout_type_mask & logger_stdout_type.logger_stdout_stringio.value) != 0:
@@ -164,7 +169,7 @@ class logger:
             final_text = log_text
 
             if type.value == logger_log_type.logger_type_normal.value:
-                final_text = "[NORMAL]" + final_text 
+                final_text = msg
             elif type.value == logger_log_type.logger_type_info.value:
                 final_text = "[INFO]" + final_text
             elif type.value == logger_log_type.logger_type_debug.value:

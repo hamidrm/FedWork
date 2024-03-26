@@ -7,8 +7,10 @@ from utils.common import *
 import struct
 from utils.logger import *
 import copy
+from network import Network
 
-class ServerComm:
+
+class ServerComm(Network):
 
     def __init__(self, host, port, server_evt_fn):
         self.host = host
@@ -82,7 +84,7 @@ class ServerComm:
         client_is_alive = True
         self.server_evt_fn(COMM_EVT_CONNECTED, client_data, None)
         while(client_is_alive):
-            packet_type, packet_param1, _, _, data = self.receive_data(SERVER_NAME, client_data.connection)
+            packet_type, packet_param1, packet_param2, _, data = self.receive_data(SERVER_NAME, client_data.connection)
             if packet_type == COMM_HEADER_TYPES_CMD:
                 logger.log_debug(f"Command received from '{client_data.name}' (packet_param1={packet_param1}).")
                 if packet_param1 == COMM_HEADER_CMD_NOP:
@@ -91,7 +93,9 @@ class ServerComm:
                     self.server_evt_fn(COMM_EVT_TRAINING_DONE, client_data, None)
                 elif packet_param1 == COMM_HEADER_CMD_DROPEME_REQ:
                     self.server_evt_fn(COMM_EVT_DROPEME_REQ, client_data, None)
-                    client_is_alive = False             
+                    client_is_alive = False
+                elif packet_param1 == COMM_HEADER_CMD_REQUEST_PACKET_NUM:
+                    super().resend_chunk_data(client_data.connection, client_data.name, packet_param2)        
                 else:
                     logger.log_error(f'Invalid command on Server from "{client_data.name} ({client_data.addr})".')
                     continue
@@ -113,128 +117,16 @@ class ServerComm:
     def send_data(self, client_name, data):
         data_bytes_array = Common.data_convert_to_bytes(data)
         logger.log_debug(f"Sending data to '{client_name}'(size of data = {len(data_bytes_array)})")
-        self.send_data(client_name, COMM_HEADER_TYPES_DATA, 0, 0, data_bytes_array)
+        super().send_data(self.clients[client_name].connection, client_name, COMM_HEADER_TYPES_DATA, 0, 0, data_bytes_array)
 
     def send_command(self, client_name, command, param, data = None):
         logger.log_debug(f"Sending command to '{client_name}'(command={command}, size of data = {len(data)})")
         data_bytes_array = []
         if data is not None:
             data_bytes_array = Common.data_convert_to_bytes(data)
-        self.send_data(client_name, COMM_HEADER_TYPES_CMD, command, param, data_bytes_array)
+        super().send_data(self.clients[client_name].connection, client_name, COMM_HEADER_TYPES_CMD, command, param, data_bytes_array)
 
     def disconnect(self, client_name):
         self.clients[client_name].connection.close()
         logger.log_debug(f"Client '{client_name}' is disconnected...")
         self.server_evt_fn(COMM_EVT_DISCONNECTED, self.clients[client_name], None)
-
-
-    def send_data(self, receiver_id, type, param1, param2, data):
-        data_offset = 0
-        data_seq_num = 0
-        
-        payload_to_send = Common.data_convert_to_bytes(data)
-        self.send_buffer = copy.deepcopy(payload_to_send)
-
-        while True:
-
-            if data_offset == 0:
-                data_buffer = struct.pack(COMM_HEADER_FORMAT, COMM_HEADER_SIGN, len(payload_to_send), type, param1, param2, receiver_id.encode('ascii'))
-                data_length = min(len(payload_to_send), COMM_HCHUNK_TOTAL_DATA_SIZE)
-                data_to_send = payload_to_send[:data_length]
-                data_offset += data_length
-                data_buffer += data_to_send
-                data_pad = bytes([0 for _ in range(COMM_HCHUNK_TOTAL_DATA_SIZE - data_length)])
-                self.clients[receiver_id].connection.sendall(data_buffer+data_pad)
-                if len(payload_to_send) <= COMM_HCHUNK_TOTAL_DATA_SIZE:
-                    return
-            else:
-                data_length = min(len(payload_to_send) - data_offset, COMM_TCHUNK_TOTAL_DATA_SIZE)
-                data_buffer = struct.pack(COMM_TAILS_FORMAT, COMM_TAILS_SIGN, receiver_id, data_length, data_seq_num)
-                data_seq_num += 1
-                data_to_send = payload_to_send[data_offset:data_offset+data_length]
-                data_offset += data_length
-                data_buffer += data_to_send
-                data_pad = bytes([0 for _ in range(COMM_TCHUNK_TOTAL_DATA_SIZE - data_length)])
-                self.clients[receiver_id].connection.sendall(data_buffer+data_pad)
-                
-                if data_offset == len(payload_to_send):
-                    return
-
-    def receive_data(self, recv_id, connection):
-        expected_length = 0
-        received_length = 0
-        total_data = []
-        seq_list = []
-
-        while True:
-            chunk = connection.recv(COMM_CHUNK_TOTAL_SIZE)
-
-            header_data   = struct.unpack(COMM_HEADER_FORMAT, chunk[:COMM_HEADER_SIZE])
-            header_dict = dict(zip(COMM_HEADER_DICT.keys(), header_data)) 
-
-            if header_dict["packet_sign"] == COMM_HEADER_SIGN:
-                payload_size  = header_dict["payload_len"]
-                packet_type   = header_dict["type"]
-                packet_param1 = header_dict["param1"]
-                packet_param2 = header_dict["param2"]
-                packet_id     = header_dict["id"].decode('ascii')
-
-                if packet_id != recv_id:
-                    continue
-
-                expected_length = payload_size
-                
-                received_length = min(payload_size, COMM_HCHUNK_TOTAL_DATA_SIZE)
-
-                total_data = [0] * expected_length
-
-                total_data[:payload_size] = chunk[COMM_HEADER_SIZE:COMM_HEADER_SIZE+payload_size]
-
-                if expected_length <= COMM_HCHUNK_TOTAL_DATA_SIZE:
-                    return (packet_type, packet_param1, packet_param2, expected_length, bytes(total_data))
-                
-            elif header_dict["packet_sign"] == COMM_TAILS_SIGN:
-                tails_data   = struct.unpack(COMM_TAILS_FORMAT, chunk[:COMM_TAILS_SIZE])
-                tails_dict = dict(zip(COMM_TAILS_DICT.keys(), tails_data))
-
-                payload_size  = tails_dict["payload_len"]
-                packet_seq   = tails_dict["sequence"]
-                packet_id     = tails_dict["id"].decode('ascii')
-
-                if packet_id != recv_id:
-                    continue
-                
-                seq_list.append(packet_seq)
-
-                total_data[packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE:packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE + payload_size] = chunk[COMM_TAILS_SIZE:COMM_TAILS_SIZE+payload_size]
-
-                received_length += payload_size
-
-                if packet_seq == int((expected_length - COMM_HCHUNK_TOTAL_DATA_SIZE - 1) / COMM_TCHUNK_TOTAL_DATA_SIZE):
-                    if received_length == expected_length:
-                        return (packet_type, packet_param1, packet_param2, expected_length, bytes(total_data))
-                    else:
-                        expected_seq_list = [i for i in range(((expected_length - COMM_HCHUNK_TOTAL_DATA_SIZE) / COMM_TCHUNK_TOTAL_DATA_SIZE)) if i not in seq_list]
-                        # We have lost some packets :(
-                        # We must request resend them
-                        for packet_num in expected_seq_list:
-                            while True:
-                                self.send_command(recv_id, COMM_HEADER_CMD_REQUEST_PACKET_NUM, packet_num, None)
-                                chunk = connection.recv(COMM_CHUNK_TOTAL_SIZE)
-                                
-                                tails_data   = struct.unpack(COMM_TAILS_FORMAT, chunk[:COMM_TAILS_SIZE])
-                                tails_dict = dict(zip(COMM_TAILS_DICT.keys(), tails_data))
-
-                                payload_size  = tails_dict["payload_len"]
-                                packet_seq   = tails_dict["sequence"]
-                                packet_id     = tails_dict["id"].decode('ascii')
-
-                                if packet_id != recv_id:
-                                    continue
-
-                                if packet_seq != packet_num:
-                                    continue
-
-                                total_data[packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE:packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE + payload_size] = chunk[COMM_TAILS_SIZE:COMM_TAILS_SIZE+payload_size]
-                                received_length += payload_size
-                        return (packet_type, packet_param1, packet_param2, expected_length, bytes(total_data))

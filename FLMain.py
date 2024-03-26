@@ -28,6 +28,11 @@ logger().set_stdout(logger_stdout_type.logger_stdout_console.value |
                   logger_stdout_type.logger_stdout_network.value |
                   logger_stdout_type.logger_stdout_stringio.value)
 
+def handle_exception(exc_type, exc_value, exc_traceback):
+    logger().log_error(f"An exception occurred: {exc_value}\nTrace back: {exc_traceback}\n")
+
+sys.excepthook = handle_exception
+
 arch = FWArch(BaseArch.FeedForwardNet1)
 arch.SetParameter("ActivationFunction", ActivationFunction.ReLUFunction)
 arch.SetParameter("NumberOfInputNodes", 28*28)
@@ -38,14 +43,14 @@ arch.Build()
 def create_local_clients(train_ds_list: list, clients_list: list):
    for client_id in range(len(train_ds_list)):
       model = arch.CreateModel()
-      client = Client(f"Client#{client_id}", IpAddr("127.0.0.1", 9911), TrainingHyperParameters(0.001, 0.9, 1e-7), train_ds_list[client_id], model, optim.SGD, nn.CrossEntropyLoss, "cpu")
+      client = Client(f"Client{client_id}", IpAddr("127.0.0.1", 9911), TrainingHyperParameters(0.001, 0.9, 1e-7), train_ds_list[client_id], model, optim.SGD, nn.CrossEntropyLoss, "cpu")
       clients_list.append(client)
    
 fedavg = FedAvg()
 
 
 
-train_ds_list, test_ds = create_datasets(1, "MNIST", True, 0.4, 128, 256, True)
+train_ds_list, test_ds = create_datasets(20, "MNIST", True, 0.4, 128, 256, True)
 
 weights = [(float(len(dataloader.dataset)) / float(sum([len(dataloader.dataset) for  dataloader in train_ds_list]))) for dataloader in train_ds_list]
 fedavg.args = weights

@@ -6,7 +6,7 @@ from FederatedLearningClass import *
 import random
 from utils.logger import *
 
-num_of_nodes_contributor = 5
+num_of_nodes_contributor = 20
 
 class FedAvg(FederatedLearningClass):
 
