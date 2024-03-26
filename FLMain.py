@@ -45,7 +45,7 @@ fedavg = FedAvg()
 
 
 
-train_ds_list, test_ds = create_datasets(20, "MNIST", True, 0.4, 128, 256, True)
+train_ds_list, test_ds = create_datasets(1, "MNIST", True, 0.4, 128, 256, True)
 
 weights = [(float(len(dataloader.dataset)) / float(sum([len(dataloader.dataset) for  dataloader in train_ds_list]))) for dataloader in train_ds_list]
 fedavg.args = weights
