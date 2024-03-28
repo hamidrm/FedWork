@@ -7,27 +7,36 @@ from utils.common import *
 from utils.logger import *
 
 class Network:
-    def __init__(self):
+    def __init__(self, name):
         self.send_buffer = []
+        self.recv_lock = threading.Lock()
+        self.send_buffer_lock = threading.Lock()
+        self.name = name
+
 
     def resend_chunk_data(self, connection, receiver_id, chunk_seq_num):
         payload_offset = COMM_HCHUNK_TOTAL_DATA_SIZE+chunk_seq_num*COMM_TCHUNK_TOTAL_DATA_SIZE
-        payload_length = min(COMM_TCHUNK_TOTAL_DATA_SIZE, len(self.send_buffer) - payload_offset)
-        payload = self.send_buffer[payload_offset:payload_length+payload_offset]
+        with self.send_buffer_lock:
+            payload_length = min(COMM_TCHUNK_TOTAL_DATA_SIZE, len(self.send_buffer) - payload_offset)
+            payload = self.send_buffer[payload_offset:payload_length+payload_offset]
 
         data_buffer = struct.pack(COMM_TAILS_FORMAT, COMM_TAILS_SIGN, receiver_id.encode('ascii'), payload_length, chunk_seq_num)
         
         data_pad = bytes([0 for _ in range(COMM_TCHUNK_TOTAL_DATA_SIZE - payload_length)])
         connection.sendall(data_buffer+payload+data_pad)
 
+
                     
     def send_data(self, connection, receiver_id, type, param1, param2, data):
         data_offset = 0
         data_seq_num = 0
         
-        payload_to_send = Common.data_convert_to_bytes(data)
-        self.send_buffer = copy.deepcopy(payload_to_send)
 
+        payload_to_send = data
+        with self.send_buffer_lock:
+            self.send_buffer = copy.deepcopy(payload_to_send)
+
+        logger().log_debug(f"Going to send {len(payload_to_send)} bytes, recv_id={receiver_id}, type={type}, param1={param1}, param2={param2}")
         while True:
 
             if data_offset == 0:
@@ -38,7 +47,9 @@ class Network:
                 data_buffer += data_to_send
                 data_pad = bytes([0 for _ in range(COMM_HCHUNK_TOTAL_DATA_SIZE - data_length)])
                 connection.sendall(data_buffer+data_pad)
+                logger().log_debug(f"Initial packet is sent. len={len(payload_to_send)}, recv_id={receiver_id}, type={type}, param1={param1}, param2={param2}")
                 if len(payload_to_send) <= COMM_HCHUNK_TOTAL_DATA_SIZE:
+                    logger().log_debug(f"{len(payload_to_send)} bytes sent, recv_id={receiver_id}, type={type}, param1={param1}, param2={param2}")
                     return
             else:
                 data_length = min(len(payload_to_send) - data_offset, COMM_TCHUNK_TOTAL_DATA_SIZE)
@@ -49,8 +60,9 @@ class Network:
                 data_buffer += data_to_send
                 data_pad = bytes([0 for _ in range(COMM_TCHUNK_TOTAL_DATA_SIZE - data_length)])
                 connection.sendall(data_buffer+data_pad)
-                
+                logger().log_debug(f"Packet '{data_seq_num}-th' is sent. len={len(payload_to_send)}, recv_id={receiver_id}, type={type}, param1={param1}, param2={param2}")
                 if data_offset == len(payload_to_send):
+                    logger().log_debug(f"{len(payload_to_send)} bytes sent, recv_id={receiver_id}, type={type}, param1={param1}, param2={param2}")
                     return
 
     def receive_data(self, recv_id, connection):
@@ -61,7 +73,7 @@ class Network:
 
         while True:
             chunk = connection.recv(COMM_CHUNK_TOTAL_SIZE)
-
+            logger().log_debug(f"'{len(chunk)}' bytes has been received. name={self.name}, recv_id={recv_id}")
             header_data   = struct.unpack(COMM_HEADER_FORMAT, chunk[:COMM_HEADER_SIZE])
             header_dict = dict(zip(COMM_HEADER_DICT.keys(), header_data)) 
 
@@ -71,7 +83,7 @@ class Network:
                 packet_param1 = header_dict["param1"]
                 packet_param2 = header_dict["param2"]
                 packet_id     = header_dict["id"].decode('ascii').rstrip('\x00')
-
+                logger().log_debug(f"New initialize packet is received (payload_size={payload_size}, packet_type={packet_type}, packet_param1={packet_param1}, packet_param2={packet_param2}, packet_id={packet_id}). name={self.name}, recv_id={recv_id}")
                 if packet_id != recv_id:
                     logger().log_warning(f"Invalid chunk is read! expected '{recv_id}', received '{packet_id}'.")
                     continue
@@ -85,7 +97,7 @@ class Network:
                 total_data[:payload_size] = chunk[COMM_HEADER_SIZE:COMM_HEADER_SIZE+payload_size]
 
                 if expected_length <= COMM_HCHUNK_TOTAL_DATA_SIZE:
-                    return (packet_type, packet_param1, packet_param2, expected_length, bytes(total_data))
+                    return (packet_type, packet_param1, packet_param2, expected_length, bytes(total_data[:expected_length]))
                 
             elif header_dict["packet_sign"] == COMM_TAILS_SIGN:
                 tails_data   = struct.unpack(COMM_TAILS_FORMAT, chunk[:COMM_TAILS_SIZE])
@@ -95,6 +107,8 @@ class Network:
                 packet_seq   = tails_dict["sequence"]
                 packet_id     = tails_dict["id"].decode('ascii').rstrip('\x00')
 
+                logger().log_debug(f"New tail packet is received (payload_size={payload_size}, packet_seq={packet_seq}, packet_id={packet_id}")
+                
                 if packet_id != recv_id:
                     logger().log_warning(f"Invalid chunk is read! expected: '{recv_id}', received: '{packet_id}'.")
                     continue
@@ -107,7 +121,7 @@ class Network:
 
                 if packet_seq == int((expected_length - COMM_HCHUNK_TOTAL_DATA_SIZE - 1) / COMM_TCHUNK_TOTAL_DATA_SIZE):
                     if received_length == expected_length:
-                        return (packet_type, packet_param1, packet_param2, expected_length, bytes(total_data))
+                        return (packet_type, packet_param1, packet_param2, expected_length, bytes(total_data[:expected_length]))
                     else:
                         expected_seq_list = [i for i in range(int((expected_length - COMM_HCHUNK_TOTAL_DATA_SIZE) / COMM_TCHUNK_TOTAL_DATA_SIZE)) if i not in seq_list]
                         # We have lost some packets :(
@@ -119,6 +133,9 @@ class Network:
                                 
                                 tails_data   = struct.unpack(COMM_TAILS_FORMAT, chunk[:COMM_TAILS_SIZE])
                                 tails_dict = dict(zip(COMM_TAILS_DICT.keys(), tails_data))
+
+                                if COMM_TAILS_SIGN != tails_dict["packet_sign"]:
+                                    continue
 
                                 payload_size  = tails_dict["payload_len"]
                                 packet_seq   = tails_dict["sequence"]
@@ -134,4 +151,7 @@ class Network:
 
                                 total_data[packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE:packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE + payload_size] = chunk[COMM_TAILS_SIZE:COMM_TAILS_SIZE+payload_size]
                                 received_length += payload_size
-                        return (packet_type, packet_param1, packet_param2, expected_length, bytes(total_data))
+                        return (packet_type, packet_param1, packet_param2, expected_length, bytes(total_data[:expected_length]))
+            else:
+                hex_sign = hex(header_dict["packet_sign"])
+                logger().log_error(f"Invalid packet sign received! (packet_sign={hex_sign})")

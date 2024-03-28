@@ -23,6 +23,7 @@ class Server:
         self.fl_method = fl_method
         self.round_number = 0
         self.fl_method.server = self
+        self.aggregation_lock = threading.Lock()
         fl_method.init_method()
         logger.log_debug(f"Server initilization done.")
 
@@ -72,14 +73,18 @@ class Server:
             profiler.save_variable(MEASURE_PROBE_DATA_SENT_BYTES, self.server_comm.upload_data_size, self.round_number)
 
             logger.log_debug(f"The trained model received from '{client.name}'.")
-            self.received_models.append(data)
+
+            with self.aggregation_lock:
+                self.received_models.append(data)
             logger.log_info(f"[{self.fl_method.get_name()}]: Trained model received from '{client.name}'.")
             if self.fl_method.ready_to_aggregate(len(self.received_models)):
+                with self.aggregation_lock:
+                    model_list = [copy.deepcopy(model) for model in self.received_models]
+                    self.received_models.clear()
                 logger.log_debug(f"Start to aggregate in a new thread.")
-                model_list = [copy.deepcopy(model) for model in self.received_models]
                 aggregation_thread = threading.Thread(target=self.__aggregation_thread, args=(model_list, ))
                 aggregation_thread.start()
-                self.received_models.clear()
+                
         elif evt == COMM_EVT_EPOCH_DONE_NOTIFY:
             logger.log_debug(f"The notification received from '{client.name}'.")
 

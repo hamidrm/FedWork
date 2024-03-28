@@ -10,6 +10,7 @@ from network import Network
 class ClientComm(Network):
     
     def __init__ (self, name, host, port, client_evt_fn) -> None:
+        super().__init__(name)
         self.name = name
         self.host = host
         self.port = port
@@ -71,18 +72,18 @@ class ClientComm(Network):
         logger.log_debug(f"[{self.name}]: Receiving thread has been finished.")
 
     def send_notification_to_server(self, notify_evt, param, data = None):
-        data_bytes_array = []
+        data_bytes_array = b''
         logger.log_debug(f"[{self.name}]: Sending notification to the server (notify_evt={notify_evt}).")
         if data is not None:
             data_bytes_array = Common.data_convert_to_bytes(data)
-        self.send_data(self.socket, SERVER_NAME, COMM_HEADER_TYPES_NOTI, notify_evt, param, data_bytes_array)
+        self.send_data(self.socket, self.name, COMM_HEADER_TYPES_NOTI, notify_evt, param, data_bytes_array)
      
 
     def send_data_to_server(self, data):
         
         payload_to_send = Common.data_convert_to_bytes(data)
         logger.log_debug(f"[{self.name}]: Sending data to the server (payload_size={len(payload_to_send)}).")
-        self.send_data(self.socket, SERVER_NAME, COMM_HEADER_TYPES_DATA, 0, 0, payload_to_send)
+        self.send_data(self.socket, self.name, COMM_HEADER_TYPES_DATA, 0, 0, payload_to_send)
 
     def disconnect(self):
         logger.log_debug(f"[{self.name}]: Disconnecting...")
@@ -96,8 +97,10 @@ class ClientComm(Network):
         info["name"] = self.name
         info["processing_power"] = 5 #Between 0 to 10
         payload_to_send = Common.data_convert_to_bytes(info)
-        self.send_data(self.socket, SERVER_NAME, COMM_HEADER_TYPES_INTRODUCTION, 0, 0, payload_to_send)
+        payload_to_send2 = Common.data_convert_from_bytes(payload_to_send)
+        print(payload_to_send2)
+        self.send_data(self.socket, self.name, COMM_HEADER_TYPES_INTRODUCTION, 0, 0, payload_to_send)
 
     def send_command_to_server(self, cmd, param):
         logger.log_debug(f"[{self.name}]: Sending command to the server.")
-        self.send_data(self.socket, SERVER_NAME, COMM_HEADER_TYPES_CMD, cmd, param, None)
+        self.send_data(self.socket, self.name, COMM_HEADER_TYPES_CMD, cmd, param, None)

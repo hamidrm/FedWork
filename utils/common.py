@@ -1,4 +1,9 @@
+
+import io
 import pickle
+import msgpack
+import numpy as np
+import torch
 
 class ClientData:
 
@@ -30,16 +35,9 @@ class Common:
 
     @staticmethod
     def data_convert_to_bytes(data):
-        if isinstance(data, str):
-            return data.encode('utf-8')
-        elif isinstance(data, bytes):
-            return data
-        else:
-            # Serialize the data structure using pickle
-            serialized_data = pickle.dumps(data)
-            return serialized_data
+        return pickle.dumps(data)
+
         
     @staticmethod
     def data_convert_from_bytes(bytes_data):
-        data = pickle.loads(bytes_data)
-        return data
+        return pickle.loads(bytes_data)

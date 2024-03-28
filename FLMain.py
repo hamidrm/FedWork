@@ -37,7 +37,7 @@ arch = FWArch(BaseArch.FeedForwardNet1)
 arch.SetParameter("ActivationFunction", ActivationFunction.ReLUFunction)
 arch.SetParameter("NumberOfInputNodes", 28*28)
 arch.SetParameter("NumberOfHiddenNodes", 1024)
-arch.SetParameter("NumberOfOutputNodes", 10)
+arch.SetParameter("NumberOfOutputNodes",  10)
 arch.Build()
 
 def create_local_clients(train_ds_list: list, clients_list: list):

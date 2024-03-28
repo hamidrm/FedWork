@@ -1,5 +1,5 @@
 
-import pickle
+import msgpack
 import socket
 import threading
 from utils.consts import *
@@ -13,6 +13,7 @@ from network import Network
 class ServerComm(Network):
 
     def __init__(self, host, port, server_evt_fn):
+        super().__init__(SERVER_NAME)
         self.host = host
         self.port = port
         self.server_ready = threading.Lock()
@@ -59,11 +60,12 @@ class ServerComm(Network):
         self.download_total_size += len(msg_header_bin)
         if result_dict["packet_sign"] == COMM_HEADER_SIGN:
             packet_type   = result_dict["type"]
+            packet_size   = result_dict["payload_len"]
             #packet_param1 = result_dict["param1"]
             #packet_param2 = result_dict["param2"]
             if packet_type == COMM_HEADER_TYPES_INTRODUCTION:
-                client_info = connection.recv(COMM_HCHUNK_TOTAL_DATA_SIZE) #Read the payload
-                info = pickle.loads(client_info)
+                client_info = connection.recv(packet_size) #Read the payload
+                info = Common.data_convert_from_bytes(client_info)
                 client_data = ClientData(info["name"], address, info["processing_power"], connection)
                 client_data.listener_thread = threading.Thread(target=self.__client_receiver, args=(client_data, ))
                 self.clients[info["name"]] = client_data
@@ -84,7 +86,7 @@ class ServerComm(Network):
         client_is_alive = True
         self.server_evt_fn(COMM_EVT_CONNECTED, client_data, None)
         while(client_is_alive):
-            packet_type, packet_param1, packet_param2, _, data = self.receive_data(SERVER_NAME, client_data.connection)
+            packet_type, packet_param1, packet_param2, _, data = self.receive_data(client_data.name, client_data.connection)
             if packet_type == COMM_HEADER_TYPES_CMD:
                 logger.log_debug(f"Command received from '{client_data.name}' (packet_param1={packet_param1}).")
                 if packet_param1 == COMM_HEADER_CMD_NOP:
@@ -97,7 +99,7 @@ class ServerComm(Network):
                 elif packet_param1 == COMM_HEADER_CMD_REQUEST_PACKET_NUM:
                     super().resend_chunk_data(client_data.connection, client_data.name, packet_param2)        
                 else:
-                    logger.log_error(f'Invalid command on Server from "{client_data.name} ({client_data.addr})".')
+                    logger.log_error(f'Invalid command on Server from "{client_data.name} ({client_data.addr},  packet_param1={packet_param1})".')
                     continue
             elif packet_type == COMM_HEADER_TYPES_DATA:
                 payload_dict = Common.data_convert_from_bytes(bytes(data))
@@ -106,6 +108,8 @@ class ServerComm(Network):
                 logger.log_debug(f"Notification received from '{client_data.name}' (packet_param1={packet_param1}).")
                 if packet_param1 == COMM_HEADER_NOTI_EPOCH_DONE:   
                     self.server_evt_fn(COMM_EVT_EPOCH_DONE_NOTIFY, client_data, Common.data_convert_from_bytes(data))
+                else:
+                    logger.log_error(f'Invalid notification on Server from "{client_data.name} ({client_data.addr}, packet_param1={packet_param1})".')
         client_data.connection.close()
         logger.log_debug(f"Connection closed...")
         del self.clients[client_data.name]
@@ -120,8 +124,7 @@ class ServerComm(Network):
         super().send_data(self.clients[client_name].connection, client_name, COMM_HEADER_TYPES_DATA, 0, 0, data_bytes_array)
 
     def send_command(self, client_name, command, param, data = None):
-        logger.log_debug(f"Sending command to '{client_name}'(command={command}, size of data = {len(data)})")
-        data_bytes_array = []
+        data_bytes_array = b''
         if data is not None:
             data_bytes_array = Common.data_convert_to_bytes(data)
         super().send_data(self.clients[client_name].connection, client_name, COMM_HEADER_TYPES_CMD, command, param, data_bytes_array)
