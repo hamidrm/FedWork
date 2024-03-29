@@ -13,6 +13,7 @@ from network import Network
 class ServerComm(Network):
 
     def __init__(self, host, port, server_evt_fn):
+        super().__init__()
         self.host = host
         self.port = port
         self.server_ready = threading.Lock()
@@ -27,6 +28,9 @@ class ServerComm(Network):
         self.download_data_size = 0
         server_thread.start()
         self.server_ready.acquire()  #Block the server until server network gets ready.
+
+        mailbox_thread = threading.Thread(target=self.__client_receiver)
+        mailbox_thread.start()
         logger.log_debug(f"Initialization done.")
 
     def __server_thread(self):
@@ -65,9 +69,8 @@ class ServerComm(Network):
                 client_info = connection.recv(COMM_HCHUNK_TOTAL_DATA_SIZE) #Read the payload
                 info = pickle.loads(client_info)
                 client_data = ClientData(info["name"], address, info["processing_power"], connection)
-                client_data.listener_thread = threading.Thread(target=self.__client_receiver, args=(client_data, ))
+                client_data.listener_thread = super().create_new_receiver(info["name"], connection)
                 self.clients[info["name"]] = client_data
-                client_data.listener_thread.start()
                 client_name = info["name"]
                 
                 logger.log_debug(f"Client '{client_name}' on address '{address}' has been successfully introduced and added to the clients' pool.")
@@ -78,13 +81,12 @@ class ServerComm(Network):
             logger.log_error(f"Client '{client_name}' on address '{address}' introduction error (packet_sign)!")
             connection.close()
 
-    def __client_receiver(self, client_data = None):
-        if client_data == None:
-            return
+    def __client_receiver(self):
+        
         client_is_alive = True
-        self.server_evt_fn(COMM_EVT_CONNECTED, client_data, None)
         while(client_is_alive):
-            packet_type, packet_param1, packet_param2, _, data = self.receive_data(SERVER_NAME, client_data.connection)
+            packet_type, packet_param1, _, _, data, rcv_id = super().receive_data()
+            client_data = self.clients[rcv_id]
             if packet_type == COMM_HEADER_TYPES_CMD:
                 logger.log_debug(f"Command received from '{client_data.name}' (packet_param1={packet_param1}).")
                 if packet_param1 == COMM_HEADER_CMD_NOP:
@@ -95,7 +97,7 @@ class ServerComm(Network):
                     self.server_evt_fn(COMM_EVT_DROPEME_REQ, client_data, None)
                     client_is_alive = False
                 elif packet_param1 == COMM_HEADER_CMD_REQUEST_PACKET_NUM:
-                    super().resend_chunk_data(client_data.connection, client_data.name, packet_param2)        
+                    pass
                 else:
                     logger.log_error(f'Invalid command on Server from "{client_data.name} ({client_data.addr})".')
                     continue

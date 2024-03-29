@@ -13,6 +13,7 @@ from utils.profiler import *
 
 class Server:
     def __init__(self, ip_addr: IpAddr, fl_method: FederatedLearningClass, test_ds : torch.utils.data.DataLoader, model : nn.Module, optimizer : torch.optim, loss : nn.Module, executer = "cpu"):
+        
         self.global_model = model
         self.server_comm = ServerComm(ip_addr.get_ip(), ip_addr.get_port(), self.__server_evt_fn)
         self.global_optimizer = optimizer(self.global_model.parameters(), lr=fl_method.learning_rate, momentum=fl_method.momentum, weight_decay=fl_method.weight_decay)
@@ -20,6 +21,7 @@ class Server:
         self.executer = executer
         self.test_ds = test_ds
         self.received_models = []
+        self.received_models_lock = threading.Lock()
         self.fl_method = fl_method
         self.round_number = 0
         self.fl_method.server = self
@@ -72,14 +74,17 @@ class Server:
             profiler.save_variable(MEASURE_PROBE_DATA_SENT_BYTES, self.server_comm.upload_data_size, self.round_number)
 
             logger.log_debug(f"The trained model received from '{client.name}'.")
-            self.received_models.append(data)
+
+            with self.received_models_lock:
+                self.received_models.append(data)
             logger.log_info(f"[{self.fl_method.get_name()}]: Trained model received from '{client.name}'.")
-            if self.fl_method.ready_to_aggregate(len(self.received_models)):
-                logger.log_debug(f"Start to aggregate in a new thread.")
-                model_list = [copy.deepcopy(model) for model in self.received_models]
-                aggregation_thread = threading.Thread(target=self.__aggregation_thread, args=(model_list, ))
-                aggregation_thread.start()
-                self.received_models.clear()
+            with self.received_models_lock:
+                if self.fl_method.ready_to_aggregate(len(self.received_models)):
+                    logger.log_debug(f"Start to aggregate in a new thread.")
+                    model_list = [copy.deepcopy(model) for model in self.received_models]
+                    aggregation_thread = threading.Thread(target=self.__aggregation_thread, args=(model_list, ))
+                    aggregation_thread.start()
+                    self.received_models.clear()
         elif evt == COMM_EVT_EPOCH_DONE_NOTIFY:
             logger.log_debug(f"The notification received from '{client.name}'.")
 
