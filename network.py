@@ -78,7 +78,7 @@ class Network:
         data_seq_num = 0
         
         payload_to_send = Common.data_convert_to_bytes(data)
-
+        logger().log_debug(f"Sending {len(data)} bytes. rcv_id={receiver_id},  packet_type={hex(type)}, packet_param1={hex(param1)}")
         while True:
 
             if data_offset == 0:
@@ -121,14 +121,25 @@ class Network:
             except queue.Full:
                 logger.log_error("Recv queue is full!")
 
+    def recvall(self, sock, expected_length):
+        received_data = b''
+        while len(received_data) < expected_length:
+            remaining_length = expected_length - len(received_data)
+            data_chunk = sock.recv(remaining_length)
+            if not data_chunk:
+                raise ConnectionError("Connection closed by peer")
+            received_data += data_chunk
+        return received_data
+
     def __receive_data(self, recv_id, connection):
         expected_length = 0
         received_length = 0
         total_data = []
         seq_list = []
 
+
         while True:
-            chunk = connection.recv(COMM_CHUNK_TOTAL_SIZE)
+            chunk = self.recvall(connection, COMM_CHUNK_TOTAL_SIZE)
 
             header_data   = struct.unpack(COMM_HEADER_FORMAT, chunk[:COMM_HEADER_SIZE])
             header_dict = dict(zip(COMM_HEADER_DICT.keys(), header_data)) 
@@ -139,9 +150,9 @@ class Network:
                 packet_param1 = header_dict["param1"]
                 packet_param2 = header_dict["param2"]
                 packet_id     = header_dict["id"].decode('ascii').rstrip('\x00')
-
+                logger.log_debug(f"receiving {payload_size} bytes. rcv_id={packet_id}, packet_type={hex(packet_type)}, packet_param1={hex(packet_param1)}")
                 if packet_id != recv_id:
-                    logger().log_warning(f"Invalid chunk is read! expected '{recv_id}', received '{packet_id}'.")
+                    logger.log_warning(f"Invalid chunk is read! expected '{recv_id}', received '{packet_id}'.")
                     continue
 
                 expected_length = payload_size
@@ -150,7 +161,7 @@ class Network:
 
                 total_data = [0] * expected_length
 
-                total_data[:payload_size] = chunk[COMM_HEADER_SIZE:COMM_HEADER_SIZE+payload_size]
+                total_data[:payload_size] = chunk[COMM_HEADER_SIZE:COMM_HEADER_SIZE+received_length]
 
                 if expected_length <= COMM_HCHUNK_TOTAL_DATA_SIZE:
                     self.__add_to_recv_packet(packet_type, packet_param1, packet_param2, expected_length, bytes(total_data), recv_id)
@@ -170,14 +181,14 @@ class Network:
                 seq_list.append(packet_seq)
 
                 total_data[packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE:packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE + payload_size] = chunk[COMM_TAILS_SIZE:COMM_TAILS_SIZE+payload_size]
-
                 received_length += payload_size
 
                 if packet_seq == int((expected_length - COMM_HCHUNK_TOTAL_DATA_SIZE - 1) / COMM_TCHUNK_TOTAL_DATA_SIZE):
                     if received_length == expected_length:
+                        logger.log_debug(f"{len(total_data)} bytes have received. rcv_id={packet_id}, packet_type={hex(packet_type)}, packet_param1={hex(packet_param1)}")
                         self.__add_to_recv_packet(packet_type, packet_param1, packet_param2, expected_length, bytes(total_data), recv_id)
                     else:
-                        logger().log_error(f"We have critical problem!'.")
+                        logger().log_error(f"We faced such a critical and vital problem!'.")
                         # expected_seq_list = [i for i in range(int((expected_length - COMM_HCHUNK_TOTAL_DATA_SIZE) / COMM_TCHUNK_TOTAL_DATA_SIZE)) if i not in seq_list]
                         # # We have lost some packets :(
                         # # We must request resend them

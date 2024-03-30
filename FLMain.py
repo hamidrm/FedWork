@@ -18,7 +18,7 @@ from utils.logger import *
 from utils.profiler import *
 
 
-PORT_NUM = 36340
+PORT_NUM = 36342
 logger().set_log_type(logger_log_type.logger_type_debug.value |
                     logger_log_type.logger_type_error.value |
                     logger_log_type.logger_type_info.value |

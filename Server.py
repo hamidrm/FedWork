@@ -92,7 +92,7 @@ class Server:
             profiler.save_variable(MEASURE_PROBE_CLIENT_LOSS+client.name, data["loss"], self.round_number)
 
             logger.log_debug(f'[{self.fl_method.get_name()}]: Client {client.name}, Accuracy is {data["accuracy"]}, Loss: {data["loss"]}.')
-        elif evt == COMM_HEADER_CMD_TRAINNING_DONE:
+        elif evt == COMM_EVT_TRAINING_DONE:
             logger.log_info(f'[{self.fl_method.get_name()}]: Client {client.name}, The round is done.')
         elif evt == COMM_EVT_CONNECTED:
             logger.log_info(f'{client.name} is connected.')

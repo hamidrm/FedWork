@@ -91,8 +91,6 @@ class ServerComm(Network):
                 logger.log_debug(f"Command received from '{client_data.name}' (packet_param1={packet_param1}).")
                 if packet_param1 == COMM_HEADER_CMD_NOP:
                     pass
-                elif packet_param1 == COMM_HEADER_CMD_TRAINNING_DONE:
-                    self.server_evt_fn(COMM_EVT_TRAINING_DONE, client_data, None)
                 elif packet_param1 == COMM_HEADER_CMD_DROPEME_REQ:
                     self.server_evt_fn(COMM_EVT_DROPEME_REQ, client_data, None)
                     client_is_alive = False
@@ -108,6 +106,10 @@ class ServerComm(Network):
                 logger.log_debug(f"Notification received from '{client_data.name}' (packet_param1={packet_param1}).")
                 if packet_param1 == COMM_HEADER_NOTI_EPOCH_DONE:   
                     self.server_evt_fn(COMM_EVT_EPOCH_DONE_NOTIFY, client_data, Common.data_convert_from_bytes(data))
+                elif packet_param1 == COMM_HEADER_NOTI_TRAINNING_DONE:
+                    self.server_evt_fn(COMM_EVT_TRAINING_DONE, client_data, None)
+                else:
+                     logger.log_error(f"Unknown notification received! (packet_param1={packet_param1})")
         client_data.connection.close()
         logger.log_debug(f"Connection closed...")
         del self.clients[client_data.name]
@@ -123,7 +125,7 @@ class ServerComm(Network):
 
     def send_command(self, client_name, command, param, data = None):
         logger.log_debug(f"Sending command to '{client_name}'(command={command}, size of data = {len(data)})")
-        data_bytes_array = []
+        data_bytes_array = b''
         if data is not None:
             data_bytes_array = Common.data_convert_to_bytes(data)
         super().send_data(self.clients[client_name].connection, client_name, COMM_HEADER_TYPES_CMD, command, param, data_bytes_array)

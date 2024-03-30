@@ -74,7 +74,7 @@ class ClientComm(Network):
         logger.log_debug(f"[{self.name}]: Receiving thread has been finished.")
 
     def send_notification_to_server(self, notify_evt, param, data = None):
-        data_bytes_array = []
+        data_bytes_array = b''
         logger.log_debug(f"[{self.name}]: Sending notification to the server (notify_evt={notify_evt}).")
         if data is not None:
             data_bytes_array = Common.data_convert_to_bytes(data)
