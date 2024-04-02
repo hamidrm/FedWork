@@ -6,6 +6,8 @@ from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 from datetime import datetime
 from utils.logger import *
+import utils.consts as consts
+
 
 def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_iid_level=0.1, train_batch_size=64, test_batch_size=64, num_workers=8, save_graph=True, add_info_to_figure=False):
     logger.log_info(f'Heterogeneous: {heterogeneous}, Non-i.i.d Level: {non_iid_level}, Train Batch Size: {train_batch_size}, Test Batch Size: {test_batch_size}')
@@ -18,8 +20,8 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
             transforms.ToTensor(),
             transforms.Normalize((0.5, ),(0.5, ))
         ])
-        train_dataset = datasets.MNIST(root='./data', train=True, transform=transform_train, download=True)
-        test_dataset = datasets.MNIST(root='./data', train=False, transform=transform_test)
+        train_dataset = datasets.MNIST(root='./dataset/data', train=True, transform=transform_train, download=True)
+        test_dataset = datasets.MNIST(root='./dataset/data', train=False, transform=transform_test)
         dataset_label_list = train_dataset.targets.tolist()
     elif ds_type == "CIFAR10":
         stats = (0.49139968, 0.48215841, 0.44653091), (0.24703223, 0.24348513, 0.26158784)
@@ -33,8 +35,8 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
             transforms.ToTensor(),
             transforms.Normalize(*stats)
         ])
-        train_dataset = datasets.CIFAR10(root='./data', train=True, transform=transform_train, download=True)
-        test_dataset  = datasets.CIFAR10(root='./data', train=False, transform=transform_test)
+        train_dataset = datasets.CIFAR10(root='./dataset/data', train=True, transform=transform_train, download=True)
+        test_dataset  = datasets.CIFAR10(root='./dataset/data', train=False, transform=transform_test)
     elif ds_type == "FashionMNIST":
         transform_train = transforms.Compose([
             transforms.ToTensor(),
@@ -44,8 +46,8 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
             transforms.ToTensor(),
             transforms.Normalize((0.5, ),(0.5, ))
         ])
-        train_dataset = datasets.FashionMNIST(root='./data', train=True, transform=transform_train, download=True)
-        test_dataset  = datasets.FashionMNIST(root='./data', train=False, transform=transform_test)
+        train_dataset = datasets.FashionMNIST(root='./dataset/data', train=True, transform=transform_train, download=True)
+        test_dataset  = datasets.FashionMNIST(root='./dataset/data', train=False, transform=transform_test)
         dataset_label_list = train_dataset.targets.tolist()
 
     train_classes_num = len(train_dataset.classes)
@@ -135,16 +137,20 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
             plt.text(len(train_datasets) + 2, len(unique_classes) / 2 , f'{type(train_dataset).__name__} \nHeterogeneous: {heterogeneous}\nNon-i.i.d level: {non_iid_level}\nTrain batch size: {train_batch_size}\nTest batch size: {test_batch_size}', fontsize=8, color='red', rotation=90, va='center', ha='center', bbox=dict(facecolor='white', alpha=0.5))
         plt.xlim(-1, len(train_datasets))
         plt.ylim(-1, len(unique_classes))
-        output_directory = os.path.join(os.getcwd(), "output")
+        output_directory = os.path.join(os.getcwd(), consts.OUTPUT_DIR)
+        dir_path = os.path.join(output_directory, f"dataset")
+        if not os.path.exists(dir_path):
+            os.mkdir(dir_path)
+
         plt.yticks([i for i in range(len(unique_classes))], train_dataset.classes)
         plt.xticks([i for i in range(train_ds_num)], [(i+1) for i in range(train_ds_num)])
         # Check if the directory exists, if not, create it
-        if not os.path.exists(output_directory):
-            os.makedirs(output_directory)
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
 
         current_time = datetime.now()
         time_str = current_time.strftime("%Y_%m_%d_%H_%M_%S")
-        full_path = os.path.join(output_directory, f"dataset_distribution_{time_str}.png")
+        full_path = os.path.join(dir_path, f"dataset_distribution_{time_str}.png")
         plt.savefig(full_path)
 
     return train_datasets, test_dataset_loader

@@ -1,3 +1,8 @@
+CFG_DATASET_TAG = "dataset"
+CFG_VAR_TAG = "var"
+CFG_METHOD_TAG = "method"
+
+
 MEASURE_PROBE_AGGR_TIME = "AggregationTime"
 MEASURE_PROBE_EVAL_TIME = "EvaluationTime"
 MEASURE_PROBE_EVAL_ACC = "EvaluationAccuracy"

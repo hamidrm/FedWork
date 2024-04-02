@@ -78,7 +78,7 @@ class Network:
         data_seq_num = 0
         
         payload_to_send = Common.data_convert_to_bytes(data)
-        logger().log_debug(f"Sending {len(data)} bytes. rcv_id={receiver_id},  packet_type={hex(type)}, packet_param1={hex(param1)}")
+        logger.log_debug(f"Sending {len(data)} bytes. rcv_id={receiver_id},  packet_type={hex(type)}, packet_param1={hex(param1)}")
         while True:
 
             if data_offset == 0:
@@ -127,7 +127,8 @@ class Network:
             remaining_length = expected_length - len(received_data)
             data_chunk = sock.recv(remaining_length)
             if not data_chunk:
-                raise ConnectionError("Connection closed by peer")
+                logger.log_error("Connection terminated unexpectedly!")
+                break
             received_data += data_chunk
         return received_data
 
@@ -175,7 +176,7 @@ class Network:
                 packet_id     = tails_dict["id"].decode('ascii').rstrip('\x00')
 
                 if packet_id != recv_id:
-                    logger().log_warning(f"Invalid chunk is read! expected: '{recv_id}', received: '{packet_id}'.")
+                    logger.log_warning(f"Invalid chunk is read! expected: '{recv_id}', received: '{packet_id}'.")
                     continue
                 
                 seq_list.append(packet_seq)
@@ -188,7 +189,7 @@ class Network:
                         logger.log_debug(f"{len(total_data)} bytes have received. rcv_id={packet_id}, packet_type={hex(packet_type)}, packet_param1={hex(packet_param1)}")
                         self.__add_to_recv_packet(packet_type, packet_param1, packet_param2, expected_length, bytes(total_data), recv_id)
                     else:
-                        logger().log_error(f"We faced such a critical and vital problem!'.")
+                        logger.log_error(f"We faced such a critical and vital problem!'.")
                         # expected_seq_list = [i for i in range(int((expected_length - COMM_HCHUNK_TOTAL_DATA_SIZE) / COMM_TCHUNK_TOTAL_DATA_SIZE)) if i not in seq_list]
                         # # We have lost some packets :(
                         # # We must request resend them
@@ -205,11 +206,11 @@ class Network:
                         #         packet_id     = tails_dict["id"].decode('ascii').rstrip('\x00')
 
                         #         if packet_id != recv_id:
-                        #             logger().log_warning(f"Invalid chunk is read! expected: '{recv_id}', received: '{packet_id}'.")
+                        #             logger.log_warning(f"Invalid chunk is read! expected: '{recv_id}', received: '{packet_id}'.")
                         #             continue
 
                         #         if packet_seq != packet_num:
-                        #             logger().log_warning(f"Invalid packet chunk received! expected seq: '{packet_num}', received: '{packet_seq}'.")
+                        #             logger.log_warning(f"Invalid packet chunk received! expected seq: '{packet_num}', received: '{packet_seq}'.")
                         #             continue
 
                         #         total_data[packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE:packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE + payload_size] = chunk[COMM_TAILS_SIZE:COMM_TAILS_SIZE+payload_size]

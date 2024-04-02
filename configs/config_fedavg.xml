@@ -1,0 +1,30 @@
+<fedwork_cfg num_of_nodes="5" net_port="21351" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss">
+	<dataset type="MNIST">
+		<var name="heterogeneous">True</var>
+		<var name="non_iid_level">0.9</var>
+		<var name="train_batch_size">128</var>
+		<var name="test_batch_size">256</var>
+		<var name="num_workers">8</var>
+		<var name="save_graph">True</var>
+	</dataset>
+	<method type="FedAvg" platform="gpu">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">ReLU</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">6</var>
+		<var name="w">5</var>
+	</method>
+	<method type="FedPoll" platform="gpu">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">ReLU</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">5</var>
+
+	</method>
+	<report save_logs="True">
+		<fig name="network_usage_srv_rcv_t" x_axis="Time" y_axis="ServerDataRecvBytes" methods="FedAvg," />
+		<fig name="network_usage_srv_rcv_r" x_axis="Round" y_axis="ServerDataRecvBytes" methods="FedAvg," />
+	</report>
+</fedwork_cfg>
