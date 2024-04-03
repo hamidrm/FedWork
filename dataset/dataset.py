@@ -132,9 +132,17 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
                 
         max_val = len(train_dataset.targets)
         normalized_matrix = [[val / max_val for val in row] for row in graph_map]
+        
+
+        # Calculate figure size based on the number of x labels
+        figure_width = max(len(train_datasets) / 2, 8)  # Adjust this factor as needed
+        figure_height = max(len(unique_classes) / 2, 6)  # Adjust this factor as needed
+
+        plt.figure(figsize=(figure_width, figure_height))
         plt.imshow(normalized_matrix, cmap='gray_r', interpolation='nearest')
+
         if add_info_to_figure:
-            plt.text(len(train_datasets) + 2, len(unique_classes) / 2 , f'{type(train_dataset).__name__} \nHeterogeneous: {heterogeneous}\nNon-i.i.d level: {non_iid_level}\nTrain batch size: {train_batch_size}\nTest batch size: {test_batch_size}', fontsize=8, color='red', rotation=90, va='center', ha='center', bbox=dict(facecolor='white', alpha=0.5))
+            plt.text(len(train_datasets) + 1, len(unique_classes) / 2 , f'{type(train_dataset).__name__} \nHeterogeneous: {heterogeneous}\nNon-i.i.d level: {non_iid_level}\nTrain batch size: {train_batch_size}\nTest batch size: {test_batch_size}', fontsize=8, color='red', rotation=90, va='center', ha='center', bbox=dict(facecolor='white', alpha=0.5))
         plt.xlim(-1, len(train_datasets))
         plt.ylim(-1, len(unique_classes))
         output_directory = os.path.join(os.getcwd(), consts.OUTPUT_DIR)

@@ -2,7 +2,7 @@
 
 import torch
 import torch.nn as nn
-from FederatedLearningClass import *
+from core.FederatedLearningClass import *
 import random
 from utils.logger import *
 
@@ -29,16 +29,17 @@ class FedAvg(FederatedLearningClass):
             global_dict[key] = torch_list_weights.sum(0)
         global_model.load_state_dict(global_dict)
 
-    def start_training(self):
+    def start_training(self, clients_epochs):
         logger.log_normal(f"===================================================")
         eval_loss, eval_accuracy = self.server.evaluate_model()
         logger.log_normal(f"Round {self.server.round_number} is starting...")
         logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
         if self.server.round_number != 100:
-            self.server.start_round(5, [100, 200], 0.0001)
+            self.server.start_round(clients_epochs, [100, 200], 0.0001)
+            return (eval_loss, eval_accuracy)
         else:
             logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
-        return eval_loss, eval_accuracy
+            return None
 
     def select_clients_to_train(self, all_clients):
         #selected_clients = dict(random.sample(list(all_clients.items()), num_of_nodes_contributor))

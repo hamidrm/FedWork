@@ -13,10 +13,19 @@ class BaseArch(Enum):
     ResNet34 = "ResNet34"
 
 class ActivationFunction(Enum):
+    ReLUFunction = "relu"
+    ReLU6Function = "relu6"
+    ELUFunction = "elu"
+    SELUFunction = "selu"
+    CELUFunction = "celu"
+    LeakyReLUFunction = "leaky_relu"
+    PReLUFunction = "prelu"
+    RReLUFunction = "rrelu"
     SigmoidFunction = "sigmoid"
     TanhFunction = "tanh"
-    ReLUFunction = "relu"
-    LeakyReLUFunction = "LeakyReLU"
+    SoftmaxFunction = "softmax"
+    Softmax2dFunction = "softmax2d"
+    LogSoftmaxFunction = "logsoftmax"
 
 class FWArch:
     def __init__(self, base_arch: BaseArch):
@@ -56,6 +65,12 @@ class FWArch:
                     return
                 self.variables_value[parameter_name] = parameter_value.value
 
+    def get_var_list(self):
+        return self.variables_value.keys()
+    
+    def get_var_type(self, var_name):
+        return self.variables_type[var_name]
+    
     def Build(self):
         for _, (var_name, var_val) in enumerate(self.variables_value.items()):
             if var_val == "undef":

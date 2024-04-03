@@ -5,7 +5,7 @@ import copy
 from utils.consts import *
 from utils.common import *
 from utils.logger import *
-from network import Network
+from core.network import Network
 
 class ClientComm(Network):
     

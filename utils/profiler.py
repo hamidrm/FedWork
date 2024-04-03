@@ -52,6 +52,15 @@ class profiler:
     def save_variable(probe_name, value, key):
         profiler().store_value(probe_name, value, key)
 
+    @staticmethod
+    def dump_time_probes():
+        return profiler().profiles_list
+
+    @staticmethod
+    def dump_var_probes():
+        return profiler()._variables_to_monitor
+
+
     def is_probe_available(self, probe_name):
         return ((probe_name in self.vars_val_list.keys()) or (probe_name in self.profiles_start.keys()))
 

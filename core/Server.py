@@ -3,25 +3,25 @@ import torch
 import torch.nn as nn
 import threading
 from dataset.dataset import *
-from ServerComm import ServerComm, ClientData
+from core.ServerComm import ServerComm, ClientData
 from utils.consts import *
-from FederatedLearningClass import *
+from core.FederatedLearningClass import *
 from utils.common import *
 import copy
 from utils.logger import *
 from utils.profiler import *
 
 class Server:
-    def __init__(self, ip_addr: IpAddr, fl_method: FederatedLearningClass, test_ds : torch.utils.data.DataLoader, model : nn.Module, optimizer : torch.optim, loss : nn.Module, executer = "cpu"):
+    def __init__(self, ip_addr: IpAddr, fl_method: FederatedLearningClass, test_ds : torch.utils.data.DataLoader, model : nn.Module, loss : nn.Module, executer = "cpu"):
         
         self.global_model = model
         self.server_comm = ServerComm(ip_addr.get_ip(), ip_addr.get_port(), self.__server_evt_fn)
-        self.global_optimizer = optimizer(self.global_model.parameters(), lr=fl_method.learning_rate, momentum=fl_method.momentum, weight_decay=fl_method.weight_decay)
         self.criterion = loss().to(executer)
         self.executer = executer
         self.test_ds = test_ds
         self.received_models = []
         self.received_models_lock = threading.Lock()
+        self.method_is_processing_lock = threading.Lock()
         self.fl_method = fl_method
         self.round_number = 0
         self.fl_method.server = self
@@ -113,11 +113,22 @@ class Server:
 
         logger.log_info(f"[{self.fl_method.get_name()}]: The aggregation has been completed, and clients are now up to date.")
         eval_loss, eval_accuracy = self.fl_method.start_training()
-        logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy} , Loss: {eval_loss}")
 
-    def start_training(self):
+        if eval_loss is None:
+            #Method's procedure has been finished
+            logger.log_info(f"[{self.fl_method.get_name()}]: Method's procedure has been finished!")
+            self.method_is_processing_lock.release()
+
+        else:
+            logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy} , Loss: {eval_loss}")
+
+    def wait_for_method(self):
+        self.method_is_processing_lock.acquire()
+    
+    def start_training(self, clients_epochs):
         logger.log_debug(f"Broadcasting start training command...")
-        self.fl_method.start_training()
+        self.fl_method.start_training(clients_epochs)
+        self.method_is_processing_lock.acquire()
 
     def evaluate_model(self):
         self.global_model.eval()

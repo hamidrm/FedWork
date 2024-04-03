@@ -1,11 +1,11 @@
-# Server
+# Client
 import threading
 import torch
 import torch.nn as nn
 from dataset.dataset import *
 from utils.consts import *
-from FederatedLearningClass import *
-from ClientComm import *
+from core.FederatedLearningClass import *
+from core.ClientComm import *
 from utils.logger import *
 
 class Client:

@@ -7,7 +7,7 @@ from utils.common import *
 import struct
 from utils.logger import *
 import copy
-from network import Network
+from core.network import Network
 
 
 class ServerComm(Network):
