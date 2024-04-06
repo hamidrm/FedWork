@@ -4,7 +4,6 @@ class FederatedLearningClass(ABC):
     learning_rate = 0.0001
     momentum = 0.9
     weight_decay = 1e-7
-    args = None
 
     def set_server(self, server):
         self.server = server

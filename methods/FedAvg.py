@@ -10,9 +10,9 @@ num_of_nodes_contributor = 20
 
 class FedAvg(FederatedLearningClass):
 
-    def __init__(self):
+    def __init__(self, args = ()):
         super().__init__()
-        super().set_hyperparameters(0.0001, 0.9, 1e-7)
+        self.clients_epochs, self.datasets_weights = args
 
     def get_name(self):
         return "FedAvg"
@@ -22,28 +22,25 @@ class FedAvg(FederatedLearningClass):
 
     def aggregate(self, clients_models, global_model):
         global_dict = global_model.state_dict()
-        clients_weights = self.args
-        fedavg_fraction = [clients_weights[i] for i in range(len(clients_weights))]
+        fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
         for key in global_dict.keys():
             torch_list_weights = torch.stack([clients_models[i][key].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
             global_dict[key] = torch_list_weights.sum(0)
         global_model.load_state_dict(global_dict)
 
-    def start_training(self, clients_epochs):
+    def start_training(self):
         logger.log_normal(f"===================================================")
         eval_loss, eval_accuracy = self.server.evaluate_model()
         logger.log_normal(f"Round {self.server.round_number} is starting...")
         logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
         if self.server.round_number != 100:
-            self.server.start_round(clients_epochs, [100, 200], 0.0001)
+            self.server.start_round(self.clients_epochs, [100, 200], 0.0001)
             return (eval_loss, eval_accuracy)
         else:
             logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
             return None
 
     def select_clients_to_train(self, all_clients):
-        #selected_clients = dict(random.sample(list(all_clients.items()), num_of_nodes_contributor))
-        #logger.log_normal(f"Selected Clients: {selected_clients.keys()}")
         return all_clients
 
     def select_clients_to_update(self, all_clients):

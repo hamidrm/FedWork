@@ -125,10 +125,12 @@ class Server:
     def wait_for_method(self):
         self.method_is_processing_lock.acquire()
     
-    def start_training(self, clients_epochs):
+    def start_training(self):
         logger.log_debug(f"Broadcasting start training command...")
-        self.fl_method.start_training(clients_epochs)
-        self.method_is_processing_lock.acquire()
+        self.fl_method.start_training()
+        if not self.method_is_processing_lock.locked():
+            self.method_is_processing_lock.acquire()
+            print("FUCK")
 
     def evaluate_model(self):
         self.global_model.eval()

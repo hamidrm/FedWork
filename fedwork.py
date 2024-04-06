@@ -23,10 +23,6 @@ class fedwork:
                     logger_log_type.logger_type_normal.value |
                     logger_log_type.logger_type_warning.value)
 
-        logger().set_stdout(logger_stdout_type.logger_stdout_console.value |
-                        logger_stdout_type.logger_stdout_file.value |
-                        logger_stdout_type.logger_stdout_network.value |
-                        logger_stdout_type.logger_stdout_stringio.value)
 
     def get_var(self, var_list, name, type, def_val):
         if not isinstance(var_list, list):
@@ -64,7 +60,7 @@ class fedwork:
         non_iid_level = self.get_var(vars, "non_iid_level", float, 0.5)
         train_batch_size = self.get_var(vars, "train_batch_size", int, 128)
         test_batch_size = self.get_var(vars, "test_batch_size", int, 128)
-        num_workers = self.get_var(vars, "num_workers", int, 8)
+        num_workers = self.get_var(vars, "num_workers", int, 1)
         save_graph = self.get_var(vars, "save_graph", bool, True)
         enclose_info = self.get_var(vars, "enclosed_info", bool, False)
 
@@ -121,7 +117,7 @@ class fedwork:
         return None
 
 
-    def load_method(self, code_string, class_name):
+    def load_method(self, code_string, class_name, args):
         namespace = {}
         exec(code_string, namespace)
         class_obj = namespace.get(class_name)
@@ -129,7 +125,7 @@ class fedwork:
         if class_obj is None:
             raise ValueError(f"Class '{class_name}' not found in the provided code string.")
 
-        instance = class_obj()
+        instance = class_obj(args)
 
         return instance
 
@@ -156,7 +152,23 @@ class fedwork:
             util.logger.log_error("Invalid config file! Tag 'report' is not found.")
             return
         
-        #Step 1.
+        attr_save_log = "@save_log"
+        save_log_def = "True"
+        save_log = bool(report_cfg[attr_save_log] if attr_save_log in report_cfg.keys() else save_log_def)
+
+        attr_lon = "@log_over_net"
+        lon_opt = None
+        if attr_lon in report_cfg.keys():
+            lon_opt_temp = report_cfg[attr_lon].split(",")
+            lon_opt = lon_opt_temp[0], int(lon_opt_temp[1])
+            logger().set_server(utils.common.IpAddr(*lon_opt))
+        
+        logger().set_stdout(logger_stdout_type.logger_stdout_console.value |
+                (logger_stdout_type.logger_stdout_file.value if save_log == True else 0) |
+                (logger_stdout_type.logger_stdout_network.value if lon_opt != None else 0))
+        
+        # Step 1.
+        # Generate datasets
         train_dataset_list, test_dataset = self.create_datasets(dataset_cfg, int(fedwork_cfg["@num_of_nodes"]))
         
         attr_net_port = "@net_port"
@@ -178,6 +190,8 @@ class fedwork:
 
         # Step 2.
         # For each method, we have to execute federated learning according to corresponding configuration
+        time_probes_binary = {}
+        var_probes_binary = {}
         for method in methods_cfg:
         
             attr_method_type = "@type"
@@ -192,7 +206,14 @@ class fedwork:
             var_probes_path = os.path.join(const.OUTPUT_DIR, f"{method_type}_var_probes_data.data")
 
             if os.path.exists(time_probes_path) and os.path.exists(var_probes_path):
-                util.logger.log_info(f"Information of method '{method_type}' is alreay ready!")
+                util.logger.log_info(f"Information for method '{method_type}' has been found!")
+
+                with open(time_probes_path, "rb") as f:
+                    time_probes_binary[method_type] = f.read()
+
+                with open(var_probes_path, "rb") as f:
+                    var_probes_binary[method_type] = f.read()
+
                 continue
 
 
@@ -209,8 +230,6 @@ class fedwork:
 
             with open(method_path, "rb") as f:
                 method_class = f.read()
-            
-            method_obj = self.load_method(method_class, method_type)
 
             arch_cfg = method["arch"]
             arch_cfg_vars = arch_cfg["var"]
@@ -270,6 +289,10 @@ class fedwork:
             global_model = arch.CreateModel()
             
             loss_func = self.get_loss_function(eval_criterion)
+
+            weights = [(float(len(dataloader.dataset)) / float(sum([len(dataloader.dataset) for  dataloader in train_dataset_list]))) for dataloader in train_dataset_list]
+
+            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, weights))
             server = Server(IpAddr(net_ip, net_port), method_obj, test_dataset, global_model, loss_func, method_platform)
 
             localclients_tag = "localclients"
@@ -313,25 +336,88 @@ class fedwork:
                         new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optim.SGD, loss_func, "cpu")
                         self.local_clients.append(new_client)
 
-            server.start_training(method_num_of_epochs)
+            server.start_training()
             server.wait_for_method()
 
-            time_probs = profiler.dump_time_probes()
-            var_probs = profiler.dump_var_probes()
+            time_probes = profiler.dump_time_probes()
+            var_probes = profiler.dump_var_probes()
             
-            time_probs_binary = pickle.loads(time_probs)
-            var_probs_binary = pickle.loads(var_probs)
+            time_probes_binary[method_type] = pickle.loads(time_probes)
+            var_probes_binary[method_type] = pickle.loads(var_probes)
             
             with open(time_probes_path, "wb") as f:
-                f.write(time_probs_binary)
+                f.write(time_probes_binary[method_type])
 
             with open(var_probes_path, "wb") as f:
-                f.write(var_probs_binary)
-        # Step 3.
+                f.write(var_probes_binary[method_type])
+
         
+        # Step 3.
+        # Generate repoorts
+        fig_tag = "fig"
+        if not fig_tag in report_cfg:
+            util.logger.log_warning(f"It seems no figure as output is needed!")
+            return
+        
+        figs_cfg = report_cfg[fig_tag]
+
+        if not isinstance(figs_cfg, list):
+            figs_cfg = [figs_cfg]
+
+        for fig in figs_cfg:
+            attr_name = "@name"
+            attr_x_axis = "@x_axis"
+            attr_y_axis = "@y_axis"
+            attr_methods = "@methods"
 
 
+            if not attr_name in fig.keys():
+                util.logger.log_error(f"Figures should have a name attribute!")
+                break
 
+            if not attr_x_axis in fig.keys():
+                x_axis = "Round"
+            else:
+                x_axis = fig["@x_axis"]
+                
+            if not attr_y_axis in fig.keys():
+                util.logger.log_error(f"Figure '{attr_name}' should have a y_axis attribute!")
+                break
+
+        
+            if not attr_methods in fig.keys():
+                util.logger.log_error(f"Figure '{attr_name}' should have a methods attribute!")
+                break
+
+            name = fig["@name"]
+            y_axis = fig["@y_axis"]
+            methods = str(fig["@methods"]).split(",")
+
+            for method in methods:
+
+                if not method in time_probes_binary and not method in var_probes_binary:
+                    util.logger.log_error(f"Needed method(s) for figure '{attr_name}' was not found!")
+                    break
+
+                time_probes = pickle.dumps(time_probes_binary[method])
+                var_probes = pickle.dumps(var_probes_binary[method])
+
+
+                if y_axis in time_probes:
+                    y = time_probes[y_axis]
+                elif y_axis in var_probes:
+                    y = time_probes[y_axis]
+                else:
+                    util.logger.log_error(f"Expected y_axis for figure '{attr_name}' was not found!")
+                    break
+                
+                plt.plot(x, y)
+            plt.xlabel('X-axis Label')
+            plt.ylabel('Y-axis Label')
+            plt.title('Title of the Plot')
+
+            # Save the figure
+            plt.savefig(f'{name}.png')
 
 
     def get_config(self, file_name):
