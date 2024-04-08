@@ -15,10 +15,7 @@ class ClientComm(Network):
         self.host = host
         self.port = port
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.upload_data_size = 0
-        self.upload_total_size = 0
-        self.download_total_size = 0
-        self.download_data_size = 0
+
         self.alive = True
         self.client_evt_fn = client_evt_fn
         self.recv_thread = threading.Thread(target=self.__recv_from_server)
@@ -33,7 +30,7 @@ class ClientComm(Network):
         self.socket.connect((self.host, self.port))
         self.client_evt_fn(COMM_EVT_CONNECTED, None)
         self.send_intro_to_server()
-        super().create_new_receiver(self.name, self.socket)
+        self.create_new_receiver(self.name, self.socket)
 
     def __recv_from_server(self):
         logger.log_debug(f"[{self.name}]: Receiving thread has been started.")
@@ -59,7 +56,7 @@ class ClientComm(Network):
                 elif packet_param1 == COMM_HEADER_CMD_STOP_PERIODIC_MODE:
                     self.client_evt_fn(COMM_EVT_STOP_PERIODIC_TRAINING, None)
                 elif packet_param1 == COMM_HEADER_CMD_REQUEST_PACKET_NUM:
-                    super().resend_chunk_data(self.socket, self.name, packet_param2)
+                    pass
                 else:
                     logger.log_error(f'Invalid command on client"{self.name}".')
             elif packet_type == COMM_HEADER_TYPES_DATA:

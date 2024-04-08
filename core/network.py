@@ -20,6 +20,12 @@ class Network:
 
         self.thread_num = 0
 
+        self.no_sent_data = 0
+        self.no_rcvd_data = 0
+        
+        self.no_sent_total = 0
+        self.no_rcvd_total = 0
+
     def create_new_receiver(self, recv_id, connection):
         thread = threading.Thread(target=self.__receive_data, args=(recv_id, connection, ))
         thread.start()
@@ -77,6 +83,9 @@ class Network:
         data_offset = 0
         data_seq_num = 0
         
+        self.no_sent_data += len(data)
+        
+        
         payload_to_send = Common.data_convert_to_bytes(data)
         logger.log_debug(f"Sending {len(data)} bytes. rcv_id={receiver_id},  packet_type={hex(type)}, packet_param1={hex(param1)}")
         while True:
@@ -88,6 +97,8 @@ class Network:
                 data_offset += data_length
                 data_buffer += data_to_send
                 data_pad = bytes([0 for _ in range(COMM_HCHUNK_TOTAL_DATA_SIZE - data_length)])
+
+                self.no_sent_total += len(data_buffer+data_pad)
                 connection.sendall(data_buffer+data_pad)
                 if len(payload_to_send) <= COMM_HCHUNK_TOTAL_DATA_SIZE:
                     return
@@ -99,6 +110,8 @@ class Network:
                 data_offset += data_length
                 data_buffer += data_to_send
                 data_pad = bytes([0 for _ in range(COMM_TCHUNK_TOTAL_DATA_SIZE - data_length)])
+
+                self.no_sent_total += len(data_buffer+data_pad)
                 connection.sendall(data_buffer+data_pad)
                 
                 if data_offset == len(payload_to_send):
@@ -114,6 +127,7 @@ class Network:
         item["total_data"] = copy.deepcopy(total_data)
         item["rcv_id"] = rcv_id
 
+        self.no_rcvd_data += len(total_data)
         while True:
             try:
                 self.recv_queue.put(item, block=True)
@@ -129,6 +143,7 @@ class Network:
             if not data_chunk:
                 logger.log_error("Connection terminated unexpectedly!")
                 break
+            self.no_rcvd_total += len(data_chunk)
             received_data += data_chunk
         return received_data
 

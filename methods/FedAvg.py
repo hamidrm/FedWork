@@ -12,7 +12,7 @@ class FedAvg(FederatedLearningClass):
 
     def __init__(self, args = ()):
         super().__init__()
-        self.clients_epochs, self.datasets_weights = args
+        self.clients_epochs, self.num_of_rounds, self.datasets_weights = args
 
     def get_name(self):
         return "FedAvg"
@@ -33,7 +33,7 @@ class FedAvg(FederatedLearningClass):
         eval_loss, eval_accuracy = self.server.evaluate_model()
         logger.log_normal(f"Round {self.server.round_number} is starting...")
         logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
-        if self.server.round_number != 100:
+        if self.server.round_number != self.num_of_rounds:
             self.server.start_round(self.clients_epochs, [100, 200], 0.0001)
             return (eval_loss, eval_accuracy)
         else:

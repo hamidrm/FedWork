@@ -22,10 +22,7 @@ class ServerComm(Network):
         self.clients = {}
         self.alive = True
         self.server_evt_fn = server_evt_fn
-        self.upload_data_size = 0
-        self.upload_total_size = 0
-        self.download_total_size = 0
-        self.download_data_size = 0
+
         server_thread.start()
         self.server_ready.acquire()  #Block the server until server network gets ready.
 
@@ -46,6 +43,7 @@ class ServerComm(Network):
         
         try:
             msg_header_bin = connection.recv(COMM_HEADER_SIZE) # Read the header
+            self.no_rcvd_total += len(msg_header_bin)
             if not msg_header_bin:
                 connection.close()
                 return
@@ -60,16 +58,17 @@ class ServerComm(Network):
 
         header_data   = struct.unpack(COMM_HEADER_FORMAT, msg_header_bin)
         result_dict = dict(zip(COMM_HEADER_DICT.keys(), header_data))
-        self.download_total_size += len(msg_header_bin)
         if result_dict["packet_sign"] == COMM_HEADER_SIGN:
             packet_type   = result_dict["type"]
             #packet_param1 = result_dict["param1"]
             #packet_param2 = result_dict["param2"]
             if packet_type == COMM_HEADER_TYPES_INTRODUCTION:
                 client_info = connection.recv(COMM_HCHUNK_TOTAL_DATA_SIZE) #Read the payload
+                self.no_rcvd_total += len(client_info)
+                self.no_rcvd_data  += len(client_info)
                 info = pickle.loads(client_info)
                 client_data = ClientData(info["name"], address, info["processing_power"], connection)
-                client_data.listener_thread = super().create_new_receiver(info["name"], connection)
+                client_data.listener_thread = self.create_new_receiver(info["name"], connection)
                 self.clients[info["name"]] = client_data
                 client_name = info["name"]
                 
@@ -85,7 +84,7 @@ class ServerComm(Network):
         
         client_is_alive = True
         while(client_is_alive):
-            packet_type, packet_param1, _, _, data, rcv_id = super().receive_data()
+            packet_type, packet_param1, _, _, data, rcv_id = self.receive_data()
             client_data = self.clients[rcv_id]
             if packet_type == COMM_HEADER_TYPES_CMD:
                 logger.log_debug(f"Command received from '{client_data.name}' (packet_param1={packet_param1}).")
@@ -118,17 +117,17 @@ class ServerComm(Network):
     def get_clients(self):
         return self.clients
     
-    def send_data(self, client_name, data):
+    def send_data_pkg(self, client_name, data):
         data_bytes_array = Common.data_convert_to_bytes(data)
         logger.log_debug(f"Sending data to '{client_name}'(size of data = {len(data_bytes_array)})")
-        super().send_data(self.clients[client_name].connection, client_name, COMM_HEADER_TYPES_DATA, 0, 0, data_bytes_array)
+        self.send_data(self.clients[client_name].connection, client_name, COMM_HEADER_TYPES_DATA, 0, 0, data_bytes_array)
 
     def send_command(self, client_name, command, param, data = None):
         logger.log_debug(f"Sending command to '{client_name}'(command={command}, size of data = {len(data)})")
         data_bytes_array = b''
         if data is not None:
             data_bytes_array = Common.data_convert_to_bytes(data)
-        super().send_data(self.clients[client_name].connection, client_name, COMM_HEADER_TYPES_CMD, command, param, data_bytes_array)
+        self.send_data(self.clients[client_name].connection, client_name, COMM_HEADER_TYPES_CMD, command, param, data_bytes_array)
 
     def disconnect(self, client_name):
         self.clients[client_name].connection.close()

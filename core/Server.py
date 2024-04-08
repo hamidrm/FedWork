@@ -28,6 +28,11 @@ class Server:
         fl_method.init_method()
         logger.log_debug(f"Server initilization done.")
 
+        profiler.add_var_monitor_changes("no_rcvd_total", self.server_comm, MEASURE_PROBE_CHANGES_TOTAL_RCVD_BYTES)
+        profiler.add_var_monitor_changes("no_sent_total", self.server_comm, MEASURE_PROBE_CHANGES_TOTAL_SENT_BYTES)
+        profiler.add_var_monitor_changes("no_rcvd_data", self.server_comm, MEASURE_PROBE_CHANGES_DATA_RCVD_BYTES)
+        profiler.add_var_monitor_changes("no_rcvd_data", self.server_comm, MEASURE_PROBE_CHANGES_DATA_SENT_BYTES)
+
     def start_round_ex(self, epochs, lr_mileston, gamma):
         clients = self.server_comm.get_clients()
         clients_subset = self.fl_method.select_clients(clients)
@@ -68,10 +73,10 @@ class Server:
     def __server_evt_fn(self, evt, client, data):
         if evt == COMM_EVT_MODEL:
 
-            profiler.save_variable(MEASURE_PROBE_TOTAL_RCVD_BYTES, self.server_comm.download_total_size, self.round_number)
-            profiler.save_variable(MEASURE_PROBE_TOTAL_SENT_BYTES, self.server_comm.upload_total_size, self.round_number)
-            profiler.save_variable(MEASURE_PROBE_DATA_RCVD_BYTES, self.server_comm.download_data_size, self.round_number)
-            profiler.save_variable(MEASURE_PROBE_DATA_SENT_BYTES, self.server_comm.upload_data_size, self.round_number)
+            profiler.save_variable(MEASURE_PROBE_TOTAL_RCVD_BYTES, self.server_comm.no_rcvd_total, self.round_number)
+            profiler.save_variable(MEASURE_PROBE_TOTAL_SENT_BYTES, self.server_comm.no_sent_total, self.round_number)
+            profiler.save_variable(MEASURE_PROBE_DATA_RCVD_BYTES, self.server_comm.no_rcvd_data, self.round_number)
+            profiler.save_variable(MEASURE_PROBE_DATA_SENT_BYTES, self.server_comm.no_sent_data, self.round_number)
 
             logger.log_debug(f"The trained model received from '{client.name}'.")
 
@@ -109,17 +114,19 @@ class Server:
         profiler.stop_measuring(MEASURE_PROBE_AGGR_TIME, self.round_number)
 
         for client in self.fl_method.select_clients_to_update(self.server_comm.clients):
-            self.server_comm.send_data(client, self.global_model)
+            self.server_comm.send_data_pkg(client, self.global_model)
 
         logger.log_info(f"[{self.fl_method.get_name()}]: The aggregation has been completed, and clients are now up to date.")
-        eval_loss, eval_accuracy = self.fl_method.start_training()
+        eval_loss_eval_accuracy = self.fl_method.start_training()
+        
 
-        if eval_loss is None:
+        if eval_loss_eval_accuracy is None:
             #Method's procedure has been finished
             logger.log_info(f"[{self.fl_method.get_name()}]: Method's procedure has been finished!")
             self.method_is_processing_lock.release()
 
         else:
+            eval_loss, eval_accuracy = eval_loss_eval_accuracy
             logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy} , Loss: {eval_loss}")
 
     def wait_for_method(self):
@@ -130,7 +137,11 @@ class Server:
         self.fl_method.start_training()
         if not self.method_is_processing_lock.locked():
             self.method_is_processing_lock.acquire()
-            print("FUCK")
+
+    def release_all(self):
+        self.wait_for_method()
+        for client in self.server_comm.clients:
+            self.server_comm.send_command(client["name"], COMM_HEADER_CMD_TURNOFF, 0)
 
     def evaluate_model(self):
         self.global_model.eval()

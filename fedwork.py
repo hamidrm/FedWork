@@ -187,11 +187,12 @@ class fedwork:
         ds_channels, ds_height, ds_width = sample_image.size()
         ds_num_classes = len(test_dataset.dataset.classes)
 
+        num_of_rounds = fedwork_cfg["@num_of_rounds"]
 
         # Step 2.
         # For each method, we have to execute federated learning according to corresponding configuration
-        time_probes_binary = {}
-        var_probes_binary = {}
+        probes_bin = {}
+        methods_cfg = methods_cfg if isinstance(methods_cfg, list) else [methods_cfg]
         for method in methods_cfg:
         
             attr_method_type = "@type"
@@ -202,17 +203,16 @@ class fedwork:
 
             method_type = method[attr_method_type]
 
-            time_probes_path = os.path.join(const.OUTPUT_DIR, f"{method_type}_time_probes_data.data")
-            var_probes_path = os.path.join(const.OUTPUT_DIR, f"{method_type}_var_probes_data.data")
+            probes_data_path = os.path.join(const.OUTPUT_DIR, f"{method_type}_probes_data.data")
 
-            if os.path.exists(time_probes_path) and os.path.exists(var_probes_path):
+            if os.path.exists(probes_data_path):
                 util.logger.log_info(f"Information for method '{method_type}' has been found!")
 
-                with open(time_probes_path, "rb") as f:
-                    time_probes_binary[method_type] = f.read()
-
-                with open(var_probes_path, "rb") as f:
-                    var_probes_binary[method_type] = f.read()
+                if os.path.exists(probes_data_path):
+                    with open(probes_data_path, "rb") as f:
+                        probes_bin[method_type] = f.read()
+                else:
+                    probes_bin[method_type] = None
 
                 continue
 
@@ -292,7 +292,7 @@ class fedwork:
 
             weights = [(float(len(dataloader.dataset)) / float(sum([len(dataloader.dataset) for  dataloader in train_dataset_list]))) for dataloader in train_dataset_list]
 
-            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, weights))
+            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights))
             server = Server(IpAddr(net_ip, net_port), method_obj, test_dataset, global_model, loss_func, method_platform)
 
             localclients_tag = "localclients"
@@ -339,17 +339,18 @@ class fedwork:
             server.start_training()
             server.wait_for_method()
 
-            time_probes = profiler.dump_time_probes()
-            var_probes = profiler.dump_var_probes()
+            probes = profiler.dump_probes()
             
-            time_probes_binary[method_type] = pickle.loads(time_probes)
-            var_probes_binary[method_type] = pickle.loads(var_probes)
-            
-            with open(time_probes_path, "wb") as f:
-                f.write(time_probes_binary[method_type])
+            if len(probes) != 0:
+                probes_bin[method_type] = pickle.dumps(probes)
+                with open(probes_data_path, "wb") as f:
+                    f.write(probes_bin[method_type])
+            else:
+                probes_bin[method_type] = None
 
-            with open(var_probes_path, "wb") as f:
-                f.write(var_probes_binary[method_type])
+
+
+
 
         
         # Step 3.
@@ -369,7 +370,11 @@ class fedwork:
             attr_x_axis = "@x_axis"
             attr_y_axis = "@y_axis"
             attr_methods = "@methods"
+            attr_caption = "@caption"
+            attr_x_axis_title = "x_axis_title"
+            attr_y_axis_title = "y_axis_title"
 
+            fig_caption = ""
 
             if not attr_name in fig.keys():
                 util.logger.log_error(f"Figures should have a name attribute!")
@@ -389,35 +394,67 @@ class fedwork:
                 util.logger.log_error(f"Figure '{attr_name}' should have a methods attribute!")
                 break
 
-            name = fig["@name"]
-            y_axis = fig["@y_axis"]
-            methods = str(fig["@methods"]).split(",")
+
+
+            name = fig[attr_name]
+            y_axis = fig[attr_y_axis]
+            methods = str(fig[attr_methods]).split(",")
+
+            if not attr_caption in fig.keys():
+                fig_caption = name
+            else:
+                fig_caption = fig[attr_caption]
 
             for method in methods:
 
-                if not method in time_probes_binary and not method in var_probes_binary:
+                if not method in probes_bin:
                     util.logger.log_error(f"Needed method(s) for figure '{attr_name}' was not found!")
                     break
+        
+                probes = pickle.loads(probes_bin[method])
+                probes_times_prof = probes["time_profiles"]
+                probes_vars = probes["var_values"]
+                probes_var_changes = probes["var_changes"]
 
-                time_probes = pickle.dumps(time_probes_binary[method])
-                var_probes = pickle.dumps(var_probes_binary[method])
-
-
-                if y_axis in time_probes:
-                    y = time_probes[y_axis]
-                elif y_axis in var_probes:
-                    y = time_probes[y_axis]
+                if y_axis in probes_times_prof:
+                    fig_data = probes_times_prof[y_axis]
+                elif y_axis in probes_vars:
+                    fig_data = probes_vars[y_axis]
+                elif y_axis in probes_var_changes:
+                    fig_data = probes_var_changes[y_axis]
                 else:
                     util.logger.log_error(f"Expected y_axis for figure '{attr_name}' was not found!")
                     break
                 
-                plt.plot(x, y)
-            plt.xlabel('X-axis Label')
-            plt.ylabel('Y-axis Label')
-            plt.title('Title of the Plot')
+                time = [(fig_data_elem[0] - fig_data[0][0]) for fig_data_elem in fig_data]
+                round = [fig_data_elem[1] for fig_data_elem in fig_data]
+                y = [fig_data_elem[2] for fig_data_elem in fig_data]
 
-            # Save the figure
-            plt.savefig(f'{name}.png')
+                x = []
+                if x_axis == "round":
+                    x = round
+                elif x_axis == "time":
+                    x = time
+                else:
+                    util.logger.log_error(f"'{x_axis}' does not defined for figure '{attr_name}' was not found!")
+                    break
+                plt.plot(x, y)
+
+            x_axis_title = x_axis
+            y_axis_title = y_axis
+
+            if not attr_x_axis_title in fig.keys():
+                x_axis_title = fig[attr_x_axis_title]
+
+            if not attr_y_axis_title in fig.keys():
+                y_axis_title = fig[attr_y_axis_title]
+
+            plt.xlabel(x_axis_title)
+            plt.ylabel(y_axis_title)
+            plt.title(fig_caption)
+
+            dir_path = os.path.join(const.OUTPUT_DIR, f'{name}.png')
+            plt.savefig(dir_path)
 
 
     def get_config(self, file_name):
