@@ -116,7 +116,23 @@ class fedwork:
             
         return None
 
+    def get_optimizer_class(self, optimizer_name):
+        optimizers = {
+            "SGD": optim.SGD,
+            "Adam": optim.Adam,
+            "Adagrad": optim.Adagrad,
+            "RMSprop": optim.RMSprop,
+            "Adadelta": optim.Adadelta,
+            "AdamW": optim.AdamW,
+            "SparseAdam": optim.SparseAdam,
+            # Add more optimizers here as needed
+        }
 
+        if optimizer_name in optimizers:
+            return optimizers[optimizer_name]
+        else:
+            raise ValueError("Invalid optimizer name")
+    
     def load_method(self, code_string, class_name, args):
         namespace = {}
         exec(code_string, namespace)
@@ -130,6 +146,9 @@ class fedwork:
         return instance
 
     def run(self, config_text):
+
+        if not os.path.exists(const.OUTPUT_DIR):
+            os.mkdir(const.OUTPUT_DIR)
 
         dict_cfg = xmltodict.parse(config_text)
         fedwork_cfg = dict_cfg.get("fedwork_cfg")
@@ -155,6 +174,7 @@ class fedwork:
         attr_save_log = "@save_log"
         save_log_def = "True"
         save_log = bool(report_cfg[attr_save_log] if attr_save_log in report_cfg.keys() else save_log_def)
+
 
         attr_lon = "@log_over_net"
         lon_opt = None
@@ -302,18 +322,23 @@ class fedwork:
                 attr_learning_rate = "@learning_rate"
                 attr_momentum = "@momentum"
                 attr_weight_decay = "@weight_decay"
+                attr_optimizer = "@optimizer"
                 localclients_num_key = "#text"
 
                 if not attr_learning_rate in localclients_cfg.keys():
-                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute learning_rate not assigned!")
+                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute learning_rate is not assigned!")
                     break
 
                 if not attr_momentum in localclients_cfg.keys():
-                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute momentum not assigned!")
+                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute momentum is not assigned!")
+                    break
+
+                if not attr_optimizer in localclients_cfg.keys():
+                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute optimizer is not assigned!")
                     break
 
                 if not attr_weight_decay in localclients_cfg.keys():
-                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute weight_decay not assigned!")
+                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute weight_decay is not assigned!")
                     break
 
                 if not localclients_num_key in localclients_cfg.keys():
@@ -324,6 +349,7 @@ class fedwork:
                 momentum = float(localclients_cfg[attr_momentum])
                 weight_decay = float(localclients_cfg[attr_weight_decay])
                 localclients_num = int(localclients_cfg[localclients_num_key])
+                optimizer = self.get_optimizer_class(localclients_cfg[attr_optimizer])
 
                 if localclients_num > len(train_dataset_list):
                     util.logger.log_warning(f"Local clients number must not be greater the total nodes number! Local clients number will be assumed {len(train_dataset_list)}")
@@ -333,7 +359,7 @@ class fedwork:
                 if localclients_num != 0:
                     for client_id in range(localclients_num):
                         model = arch.CreateModel()
-                        new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optim.SGD, loss_func, "cpu")
+                        new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, "cpu")
                         self.local_clients.append(new_client)
 
             server.start_training()

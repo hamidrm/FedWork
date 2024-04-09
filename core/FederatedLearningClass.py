@@ -40,6 +40,14 @@ class FederatedLearningClass(ABC):
     def unpack_client_model(self, packed_model):
         pass
 
+    @abstractmethod
+    def pack_server_model(self, raw_model):
+        pass
+
+    @abstractmethod
+    def unpack_server_model(self, packed_model):
+        pass
+
     def set_hyperparameters(self, learning_rate : float, momentum : float, weight_decay : float):
         self.learning_rate = learning_rate
         self.momentum = momentum

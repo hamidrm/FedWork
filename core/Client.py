@@ -9,7 +9,7 @@ from core.ClientComm import *
 from utils.logger import *
 
 class Client:
-    def __init__(self, name, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, executer = "cpu"):
+    def __init__(self, name, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, method: FederatedLearningClass,executer = "cpu"):
         
         self.client_model = model
         self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum, weight_decay=hyperparameters.weight_decay)
@@ -17,6 +17,7 @@ class Client:
         self.executer = executer
         self.dataset = train_ds
         self.name = name
+        self.method = method
         self.total_epochs = 0
         self.training_count = 0
         self.is_periodic_training_enabled = False
@@ -50,7 +51,7 @@ class Client:
             self.stop_periodic_training()
         elif evt == COMM_EVT_MODEL:
             logger.log_info(f'[{self.name}]: New model received.')
-            self.set_model(data)
+            self.set_model(self.method.unpack_server_model(data))
         elif evt == COMM_EVT_CONNECTED:
             logger.log_info(f'[{self.name}]: is connected.')
         elif evt == COMM_EVT_DISCONNECTED:
@@ -137,6 +138,8 @@ class Client:
             self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_EPOCH_DONE, 0, epoch_info)
             if lr_scheduler_milestone_list is not None:
                 scheduler.step()
-        self.client_comm.send_data_to_server(self.client_model.state_dict())
+        
+        if self.method != None:
+            self.client_comm.send_data_to_server(self.method.pack_client_model(self.client_model.state_dict()))
         self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_TRAINNING_DONE, 0)
         self.is_training_lock.release()

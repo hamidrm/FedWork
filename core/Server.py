@@ -114,7 +114,7 @@ class Server:
         profiler.stop_measuring(MEASURE_PROBE_AGGR_TIME, self.round_number)
 
         for client in self.fl_method.select_clients_to_update(self.server_comm.clients):
-            self.server_comm.send_data_pkg(client, self.global_model)
+            self.server_comm.send_data_pkg(client, self.fl_method.pack_server_model(self.global_model))
 
         logger.log_info(f"[{self.fl_method.get_name()}]: The aggregation has been completed, and clients are now up to date.")
         eval_loss_eval_accuracy = self.fl_method.start_training()

@@ -9,7 +9,7 @@
 		<var name="enclosed_info">True</var>
 	</dataset>
 
-	<localclients learning_rate="0.001" momentum="0.9" weight_decay="1e-7">20</localclients>
+	<localclients learning_rate="0.001" momentum="0.9" weight_decay="1e-7" optimizer="SGD">20</localclients>
 
 	<method type="FedAvg" platform="cpu">
 		<arch type="FeedForwardNet1">

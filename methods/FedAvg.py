@@ -52,6 +52,12 @@ class FedAvg(FederatedLearningClass):
     def unpack_client_model(self, packed_model):
         return packed_model
     
+    def pack_server_model(self, raw_model):
+        return raw_model
+
+    def unpack_server_model(self, packed_model):
+        return packed_model
+    
     def ready_to_aggregate(self, num_of_received_model: int) -> bool:
         logger.log_normal(f"Number of trained models: {num_of_received_model}")
         if num_of_received_model == num_of_nodes_contributor:
