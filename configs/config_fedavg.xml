@@ -19,7 +19,7 @@
 		<var name="epochs_num">3</var>
 	</method>
 	<report save_log="True" log_over_net="127.0.0.1,23456">
-		<fig name="network_usage_srv_rcv_t" caption="" x_axis="time" y_axis="ServerDataRecvBytes" methods="FedAvg" x_axis_title="Time(s)" y_axis_title="Server Data Received (Bytes)"/>
-		<fig name="network_usage_srv_rcv_r" caption="" x_axis="time" y_axis="ServerDataRecvBytesChanges" methods="FedAvg" x_axis_title="Time(s)" y_axis_title="Server Data Received Changes (Bytes)"/>
+		<fig name="network_usage_srv_rcv_t" caption="" x_axis="time" y_axis="ServerDataRecvBytes" methods="FedAvg" x_axis_title="Time(s)"  y_axis_title="Server Data Received (MB)" x_axis_scale = "1" y_axis_scale = "0.000001"/>
+		<fig name="network_usage_srv_rcv_r" caption="" x_axis="time" y_axis="ServerDataRecvBytesChanges" methods="FedAvg" x_axis_title="Time(s)" y_axis_title="Server Data Received Changes (MB)" x_axis_scale = "1" y_axis_scale = "0.000001"/>
 	</report>
 </fedwork_cfg>

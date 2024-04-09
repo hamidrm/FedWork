@@ -397,8 +397,10 @@ class fedwork:
             attr_y_axis = "@y_axis"
             attr_methods = "@methods"
             attr_caption = "@caption"
-            attr_x_axis_title = "x_axis_title"
-            attr_y_axis_title = "y_axis_title"
+            attr_x_axis_title = "@x_axis_title"
+            attr_y_axis_title = "@y_axis_title"
+            attr_x_axis_scale = "@x_axis_scale"
+            attr_y_axis_scale = "@y_axis_scale"
 
             fig_caption = ""
 
@@ -430,6 +432,14 @@ class fedwork:
                 fig_caption = name
             else:
                 fig_caption = fig[attr_caption]
+
+            x_axis_scale = 1.0
+            if not attr_x_axis_scale in fig.keys():
+                x_axis_scale = float(fig[attr_x_axis_scale])
+
+            y_axis_scale = 1.0
+            if not attr_y_axis_scale in fig.keys():
+                y_axis_scale = float(fig[attr_y_axis_scale])
 
             for method in methods:
 
@@ -464,7 +474,8 @@ class fedwork:
                 else:
                     util.logger.log_error(f"'{x_axis}' does not defined for figure '{attr_name}' was not found!")
                     break
-                plt.plot(x, y)
+
+                plt.plot(x * x_axis_scale, y * y_axis_scale)
 
             x_axis_title = x_axis
             y_axis_title = y_axis
