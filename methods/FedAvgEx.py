@@ -6,16 +6,16 @@ from core.FederatedLearningClass import *
 import random
 from utils.logger import *
 
-num_of_nodes_contributor = 20
+num_of_nodes_contributor = 10
 
-class FedAvg(FederatedLearningClass):
+class FedAvgEx(FederatedLearningClass):
 
     def __init__(self, args = ()):
         super().__init__()
         self.clients_epochs, self.num_of_rounds, self.datasets_weights = args
 
     def get_name(self):
-        return "FedAvg"
+        return "FedAvgEx"
     
     def init_method(self):
         pass
@@ -40,7 +40,7 @@ class FedAvg(FederatedLearningClass):
             return None
 
     def select_clients_to_train(self, all_clients):
-        return all_clients
+        return dict(random.sample(list(all_clients.items()), num_of_nodes_contributor))
 
     def select_clients_to_update(self, all_clients):
         return all_clients

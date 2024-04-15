@@ -1,0 +1,23 @@
+<fedwork_cfg num_of_nodes="20" net_port="22922" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="5">
+	<dataset type="MNIST">
+		<var name="heterogeneous">True</var>
+		<var name="non_iid_level">0.4</var>
+		<var name="train_batch_size">128</var>
+		<var name="test_batch_size">256</var>
+		<var name="num_workers">1</var>
+		<var name="save_graph">True</var>
+		<var name="enclosed_info">True</var>
+	</dataset>
+
+	<localclients learning_rate="0.001" momentum="0.9" weight_decay="1e-7" optimizer="SGD">20</localclients>
+
+	<method type="FedPoll" platform="cpu">
+		<arch type="ResNet18">
+		</arch>
+		<var name="epochs_num">5</var>
+	</method>
+	<report save_log="True" log_over_net="127.0.0.1,23456">
+		<fig name="network_usage_srv_rcv_t" caption="" x_axis="time" y_axis="ServerDataRecvBytes" methods="FedAvg" x_axis_title="Time(s)"  y_axis_title="Server Data Received (MB)" x_axis_scale = "1" y_axis_scale = "0.000001"/>
+		<fig name="network_usage_srv_rcv_r" caption="" x_axis="time" y_axis="ServerDataRecvBytesChanges" methods="FedAvg" x_axis_title="Time(s)" y_axis_title="Server Data Received Changes (MB)" x_axis_scale = "1" y_axis_scale = "0.000001"/>
+	</report>
+</fedwork_cfg>

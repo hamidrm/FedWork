@@ -2,6 +2,8 @@ import pickle
 import xml.etree.ElementTree as ET
 from core.Client import Client
 from arch.arch import ActivationFunction, BaseArch, FWArch
+from methods.FedAvg import FedAvg
+from methods.FedPoll import FedPoll
 from utils.common import IpAddr
 import utils.consts as const
 import utils.logger as util
@@ -207,7 +209,7 @@ class fedwork:
         ds_channels, ds_height, ds_width = sample_image.size()
         ds_num_classes = len(test_dataset.dataset.classes)
 
-        num_of_rounds = fedwork_cfg["@num_of_rounds"]
+        num_of_rounds = int(fedwork_cfg["@num_of_rounds"])
 
         # Step 2.
         # For each method, we have to execute federated learning according to corresponding configuration
@@ -252,7 +254,10 @@ class fedwork:
                 method_class = f.read()
 
             arch_cfg = method["arch"]
-            arch_cfg_vars = arch_cfg["var"]
+
+            tag_var = "var"
+            if tag_var in arch_cfg:
+                arch_cfg_vars = arch_cfg["var"]
 
             attr_arch_type = "@type"
             if not attr_arch_type in arch_cfg.keys():
@@ -359,6 +364,7 @@ class fedwork:
                 if localclients_num != 0:
                     for client_id in range(localclients_num):
                         model = arch.CreateModel()
+                        method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights))
                         new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, "cpu")
                         self.local_clients.append(new_client)
 
@@ -373,6 +379,8 @@ class fedwork:
                     f.write(probes_bin[method_type])
             else:
                 probes_bin[method_type] = None
+
+            server.release_all()
 
 
 
@@ -392,6 +400,7 @@ class fedwork:
             figs_cfg = [figs_cfg]
 
         for fig in figs_cfg:
+            plt.figure()
             attr_name = "@name"
             attr_x_axis = "@x_axis"
             attr_y_axis = "@y_axis"
@@ -434,17 +443,17 @@ class fedwork:
                 fig_caption = fig[attr_caption]
 
             x_axis_scale = 1.0
-            if not attr_x_axis_scale in fig.keys():
+            if attr_x_axis_scale in fig.keys():
                 x_axis_scale = float(fig[attr_x_axis_scale])
 
             y_axis_scale = 1.0
-            if not attr_y_axis_scale in fig.keys():
+            if attr_y_axis_scale in fig.keys():
                 y_axis_scale = float(fig[attr_y_axis_scale])
 
             for method in methods:
 
                 if not method in probes_bin:
-                    util.logger.log_error(f"Needed method(s) for figure '{attr_name}' was not found!")
+                    util.logger.log_error(f"Needed method(s) for figure '{name}' was not found!")
                     break
         
                 probes = pickle.loads(probes_bin[method])
@@ -459,7 +468,7 @@ class fedwork:
                 elif y_axis in probes_var_changes:
                     fig_data = probes_var_changes[y_axis]
                 else:
-                    util.logger.log_error(f"Expected y_axis for figure '{attr_name}' was not found!")
+                    util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
                     break
                 
                 time = [(fig_data_elem[0] - fig_data[0][0]) for fig_data_elem in fig_data]
@@ -472,18 +481,19 @@ class fedwork:
                 elif x_axis == "time":
                     x = time
                 else:
-                    util.logger.log_error(f"'{x_axis}' does not defined for figure '{attr_name}' was not found!")
+                    util.logger.log_error(f"'{x_axis}' does not defined for figure '{name}' was not found!")
                     break
-
-                plt.plot(x * x_axis_scale, y * y_axis_scale)
+                x = [x_v * x_axis_scale for x_v in x]
+                y = [y_v * y_axis_scale for y_v in y]
+                plt.plot(x, y)
 
             x_axis_title = x_axis
             y_axis_title = y_axis
 
-            if not attr_x_axis_title in fig.keys():
+            if attr_x_axis_title in fig.keys():
                 x_axis_title = fig[attr_x_axis_title]
 
-            if not attr_y_axis_title in fig.keys():
+            if attr_y_axis_title in fig.keys():
                 y_axis_title = fig[attr_y_axis_title]
 
             plt.xlabel(x_axis_title)

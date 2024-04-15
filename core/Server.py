@@ -54,6 +54,7 @@ class Server:
         training_conf["gamma"] = gamma
         logger.log_debug(f"Start new round (epochs={epochs}, lr_mileston={lr_mileston}, gamma={gamma})")
         for client_name in clients_subset.keys():
+            logger.log_debug(f"Start training for '{client_name}'.")
             self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
 
     def fetch_clients_pool(self):
@@ -105,16 +106,22 @@ class Server:
             logger.log_info(f'{client.name} is disconnected.')
         else:
             logger.log_warning(f"Undefined event received (evt={evt})!")
-                
+
+    def update_clients(self):
+        global_model_pack = self.fl_method.pack_server_model(self.global_model.state_dict())
+        for client in self.fl_method.select_clients_to_update(self.server_comm.clients):
+            self.server_comm.send_data_pkg(client, global_model_pack)
+            
     def __aggregation_thread(self, packed_models_list):
         models_list = [self.fl_method.unpack_client_model(packed_model) for packed_model in packed_models_list]
 
         profiler.start_measuring(MEASURE_PROBE_AGGR_TIME)
-        self.fl_method.aggregate(models_list, self.global_model)
+        self.global_model_dict = self.global_model.state_dict()
+        self.fl_method.aggregate(models_list, self.global_model_dict)
+        self.global_model.load_state_dict(self.global_model_dict)
         profiler.stop_measuring(MEASURE_PROBE_AGGR_TIME, self.round_number)
 
-        for client in self.fl_method.select_clients_to_update(self.server_comm.clients):
-            self.server_comm.send_data_pkg(client, self.fl_method.pack_server_model(self.global_model))
+        self.update_clients()
 
         logger.log_info(f"[{self.fl_method.get_name()}]: The aggregation has been completed, and clients are now up to date.")
         eval_loss_eval_accuracy = self.fl_method.start_training()
@@ -169,5 +176,7 @@ class Server:
         eval_loss = running_loss / len(self.test_ds.dataset)                      
         eval_accuracy = running_corrects / len(self.test_ds.dataset)
         profiler.stop_measuring(MEASURE_PROBE_EVAL_TIME, self.round_number)
+        profiler.save_variable(MEASURE_PROBE_EVAL_ACC, eval_accuracy, self.round_number)
+        profiler.save_variable(MEASURE_PROBE_EVAL_LOSS, eval_loss, self.round_number)
         logger.log_debug(f"Global model evaluation is done...")
         return eval_loss, eval_accuracy

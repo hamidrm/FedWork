@@ -1,4 +1,4 @@
-<fedwork_cfg num_of_nodes="20" net_port="36321" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="5">
+<fedwork_cfg num_of_nodes="20" net_port="36125" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="50">
 	<dataset type="MNIST">
 		<var name="heterogeneous">True</var>
 		<var name="non_iid_level">0.4</var>
@@ -18,8 +18,19 @@
 		</arch>
 		<var name="epochs_num">3</var>
 	</method>
+
+	<method type="FedAvgEx" platform="cpu">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">relu</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">3</var>
+	</method>
+
+
 	<report save_log="True" log_over_net="127.0.0.1,23456">
-		<fig name="network_usage_srv_rcv_t" caption="" x_axis="time" y_axis="ServerDataRecvBytes" methods="FedAvg" x_axis_title="Time(s)"  y_axis_title="Server Data Received (MB)" x_axis_scale = "1" y_axis_scale = "0.000001"/>
-		<fig name="network_usage_srv_rcv_r" caption="" x_axis="time" y_axis="ServerDataRecvBytesChanges" methods="FedAvg" x_axis_title="Time(s)" y_axis_title="Server Data Received Changes (MB)" x_axis_scale = "1" y_axis_scale = "0.000001"/>
+		<fig name="network_usage_srv_rcvd_t" caption="FedAvg data received size" x_axis="time" y_axis="ServerDataRecvBytes" methods="FedAvg,FedAvgEx" x_axis_title="Time(s)"  y_axis_title="Server Data Received (MB)" x_axis_scale = "1" y_axis_scale = "0.000001"/>
+		<fig name="network_usage_srv_sent_t" caption="FedAvg data sent size" x_axis="time" y_axis="ServerDataSentBytes" methods="FedAvg,FedAvgEx" x_axis_title="Time(s)"  y_axis_title="Server Data Sent (MB)" x_axis_scale = "1" y_axis_scale = "0.000001"/>
+		<fig name="accuracy" caption="Evaluation Accuracy" x_axis="round" y_axis="EvaluationAccuracy" methods="FedAvg,FedAvgEx" x_axis_title="Round" y_axis_title="Accuracy %" y_axis_scale = "100"/>
 	</report>
 </fedwork_cfg>

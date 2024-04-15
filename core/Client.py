@@ -60,7 +60,7 @@ class Client:
             logger.log_warning(f"Undefined event received (evt={evt})!")
 
     def set_model(self, model):
-        self.client_model.load_state_dict(model.state_dict())
+        self.client_model.load_state_dict(model)
 
     def get_model_dict(self):
         return self.client_model.state_dict()
@@ -140,6 +140,7 @@ class Client:
                 scheduler.step()
         
         if self.method != None:
-            self.client_comm.send_data_to_server(self.method.pack_client_model(self.client_model.state_dict()))
+            packed_data = self.method.pack_client_model(self.client_model.state_dict())
+            self.client_comm.send_data_to_server(packed_data)
         self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_TRAINNING_DONE, 0)
         self.is_training_lock.release()
