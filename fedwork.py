@@ -485,7 +485,7 @@ class fedwork:
                     break
                 x = [x_v * x_axis_scale for x_v in x]
                 y = [y_v * y_axis_scale for y_v in y]
-                plt.plot(x, y)
+                plt.plot(x, y, label=method)
 
             x_axis_title = x_axis
             y_axis_title = y_axis
@@ -499,6 +499,7 @@ class fedwork:
             plt.xlabel(x_axis_title)
             plt.ylabel(y_axis_title)
             plt.title(fig_caption)
+            plt.legend()
 
             dir_path = os.path.join(const.OUTPUT_DIR, f'{name}.png')
             plt.savefig(dir_path)
