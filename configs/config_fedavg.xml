@@ -28,7 +28,7 @@
 	</method>
 
 
-	<report save_log="True" log_over_net="127.0.0.1,23456">
+	<report save_log="True" log_over_net="192.168.0.184,23456">
 		<fig name="network_usage_srv_rcvd_t" caption="FedAvg data received size" x_axis="time" y_axis="ServerDataRecvBytes" methods="FedAvg,FedAvgEx" x_axis_title="Time(s)"  y_axis_title="Server Data Received (MB)" x_axis_scale = "1" y_axis_scale = "0.000001"/>
 		<fig name="network_usage_srv_sent_t" caption="FedAvg data sent size" x_axis="time" y_axis="ServerDataSentBytes" methods="FedAvg,FedAvgEx" x_axis_title="Time(s)"  y_axis_title="Server Data Sent (MB)" x_axis_scale = "1" y_axis_scale = "0.000001"/>
 		<fig name="accuracy" caption="Evaluation Accuracy" x_axis="round" y_axis="EvaluationAccuracy" methods="FedAvg,FedAvgEx" x_axis_title="Round" y_axis_title="Accuracy %" y_axis_scale = "100"/>

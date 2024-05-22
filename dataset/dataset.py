@@ -11,6 +11,7 @@ import utils.consts as consts
 
 def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_iid_level=0.1, train_batch_size=64, test_batch_size=64, num_workers=8, save_graph=True, add_info_to_figure=False):
     logger.log_info(f'Heterogeneous: {heterogeneous}, Non-i.i.d Level: {non_iid_level}, Train Batch Size: {train_batch_size}, Test Batch Size: {test_batch_size}')
+    classes = []
     if ds_type == "MNIST":
         transform_train = transforms.Compose([
             transforms.ToTensor(),
@@ -37,6 +38,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         ])
         train_dataset = datasets.CIFAR10(root='./dataset/data', train=True, transform=transform_train, download=True)
         test_dataset  = datasets.CIFAR10(root='./dataset/data', train=False, transform=transform_test)
+        dataset_label_list = train_dataset.targets
     elif ds_type == "FashionMNIST":
         transform_train = transforms.Compose([
             transforms.ToTensor(),
@@ -49,7 +51,6 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         train_dataset = datasets.FashionMNIST(root='./dataset/data', train=True, transform=transform_train, download=True)
         test_dataset  = datasets.FashionMNIST(root='./dataset/data', train=False, transform=transform_test)
         dataset_label_list = train_dataset.targets.tolist()
-
     train_classes_num = len(train_dataset.classes)
     train_datasets = []
     train_dataset_subsets_len = []
@@ -78,7 +79,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
 
     
     
-    classes = []
+    
     for subset_index in range(train_ds_num):
         train_group_index_list = []
         label_len_list = []
@@ -111,8 +112,10 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
             train_group_index_list.append(rand_index)
 
 
-        classes.append([train_dataset.targets[i].item() for i in train_group_index_list])
-
+        if isinstance(train_dataset.targets, list):
+            classes.append([train_dataset.targets[i] for i in train_group_index_list])
+        else:
+            classes.append([train_dataset.targets[i].item() for i in train_group_index_list])
 
 
         random.shuffle(train_group_index_list)

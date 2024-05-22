@@ -256,6 +256,7 @@ class fedwork:
             arch_cfg = method["arch"]
 
             tag_var = "var"
+            arch_cfg_vars = None
             if tag_var in arch_cfg:
                 arch_cfg_vars = arch_cfg["var"]
 
@@ -274,10 +275,13 @@ class fedwork:
                 util.logger.log_error(f"In method '{method_type}', the type of architecture({arch_type_str}) is not defined!")
                 break
          
+            if arch_cfg_vars is not None:
+                arch_input_nodes = self.get_var(arch_cfg_vars, "NumberOfInputNodes", int, ds_channels * ds_height * ds_width)
+                arch_output_nodes = self.get_var(arch_cfg_vars, "NumberOfOutputNodes", int, ds_num_classes)
+            else:
+                arch_input_nodes = ds_channels * ds_height * ds_width
+                arch_output_nodes = ds_num_classes
 
-            arch_input_nodes = self.get_var(arch_cfg_vars, "NumberOfInputNodes", int, ds_channels * ds_height * ds_width)
-            arch_output_nodes = self.get_var(arch_cfg_vars, "NumberOfOutputNodes", int, ds_num_classes)
-            
             arch = FWArch(arch_type)
 
             arch.SetParameter("NumberOfInputNodes", arch_input_nodes)
@@ -285,30 +289,31 @@ class fedwork:
 
             vars_list = arch.get_var_list()
 
-            for var in arch_cfg_vars:
-                attr_name_key = "@name"
-                var_value_key = "#text"
-                
-                if not attr_name_key in var.keys():
-                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', var name is not available!")
-                    break
-                if not var_value_key in var.keys():
-                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', var value is not available!")
-                    break
-
-                var_name = var[attr_name_key]
-                var_text = var[var_value_key]
-
-
-                if var_name in vars_list:
-                    var_type = arch.get_var_type(var_name)
-                    if var_type == "integer":
-                        arch.SetParameter(var_name, int(var_text))
-                    elif var_type == "act_fn":
-                        arch.SetParameter(var_name, self.get_activation_function(var_text))
-                    else:
-                        util.logger.log_error(f"Unexpectedly error in type of the variable '{var_name}'!")
+            if arch_cfg_vars is not None:
+                for var in arch_cfg_vars:
+                    attr_name_key = "@name"
+                    var_value_key = "#text"
+                    
+                    if not attr_name_key in var.keys():
+                        util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', var name is not available!")
                         break
+                    if not var_value_key in var.keys():
+                        util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', var value is not available!")
+                        break
+
+                    var_name = var[attr_name_key]
+                    var_text = var[var_value_key]
+
+
+                    if var_name in vars_list:
+                        var_type = arch.get_var_type(var_name)
+                        if var_type == "integer":
+                            arch.SetParameter(var_name, int(var_text))
+                        elif var_type == "act_fn":
+                            arch.SetParameter(var_name, self.get_activation_function(var_text))
+                        else:
+                            util.logger.log_error(f"Unexpectedly error in type of the variable '{var_name}'!")
+                            break
                 
             arch.Build()
             global_model = arch.CreateModel()
@@ -528,4 +533,4 @@ class fedwork:
 
 
 fedwork_ins = fedwork()
-fedwork_ins.start("config_fedavg.xml")
+fedwork_ins.start("config_fedpoll.xml")

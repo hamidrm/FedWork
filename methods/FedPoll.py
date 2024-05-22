@@ -7,17 +7,17 @@ import random
 from utils.logger import *
 import copy
 
-num_of_nodes_contributor = 20
+num_of_nodes_contributor = 10
 
 class FedPoll(FederatedLearningClass):
 
     def __init__(self, args = ()):
         super().__init__()
-        self.no_r_mat = 8
+        self.no_r_mat = 16
         self.clients_epochs, self.num_of_rounds, self.datasets_weights = args
         self.current_seeds = [0] * self.no_r_mat
         self.client_side_r_tensors = []
-        self.current_radius = 1e-5
+        self.current_radius = 1e-3
         self.first_aggregation = True
         self.clients_first_aggregation = True
 
@@ -51,7 +51,7 @@ class FedPoll(FederatedLearningClass):
             r_tensors_copied = copy.deepcopy(global_model)
             torch.manual_seed(self.current_seeds[r_tensor_index])
             for key in r_tensors_copied.keys():
-                r_tensors_copied[key] = (torch.rand_like(r_tensors_copied[key], dtype=torch.float) - 0.5) * 2.0 * self.current_radius
+                r_tensors_copied[key] = global_model[key] + (torch.rand_like(r_tensors_copied[key], dtype=torch.float) - 0.5) * 2.0 * self.current_radius
             r_tensors.append(r_tensors_copied)
             
         for key in global_model.keys():
@@ -61,8 +61,8 @@ class FedPoll(FederatedLearningClass):
             
             for model in clients_models:
                 for R_mat_i in range(self.no_r_mat):
-                    V_mat_max[R_mat_i] += torch.where(model[R_mat_i][key], 1, 0)
-                    V_mat_min[R_mat_i] += torch.where(model[R_mat_i][key], 0, 1)
+                    V_mat_max[R_mat_i] += torch.where(model[R_mat_i][key] == True, 1, 0)
+                    V_mat_min[R_mat_i] += torch.where(model[R_mat_i][key] == True, 0, 1)
             V_mat_max_stacked = torch.stack(V_mat_max, dim = 0)
             V_mat_min_stacked = torch.stack(V_mat_min, dim = 0)
 
@@ -144,7 +144,7 @@ class FedPoll(FederatedLearningClass):
 
             torch.manual_seed(seeds[r_tensor_index])
             for key in copied_model.keys():
-                copied_model[key] = (torch.rand_like(copied_model[key], dtype=torch.float) - 0.5) * 2.0 * radius
+                copied_model[key] = global_model[key] + (torch.rand_like(copied_model[key], dtype=torch.float) - 0.5) * 2.0 * radius
 
             self.client_side_r_tensors.append(copied_model)
 
