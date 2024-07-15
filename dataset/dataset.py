@@ -161,7 +161,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
 
         current_time = datetime.now()
         time_str = current_time.strftime("%Y_%m_%d_%H_%M_%S")
-        full_path = os.path.join(dir_path, f"dataset_distribution_{time_str}.png")
-        plt.savefig(full_path)
+        full_path = os.path.join(dir_path, f"dataset_distribution_{time_str}.pdf")
+        plt.savefig(full_path, format="pdf", bbox_inches="tight")
 
     return train_datasets, test_dataset_loader

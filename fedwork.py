@@ -1,9 +1,8 @@
 import pickle
+import sys
 import xml.etree.ElementTree as ET
 from core.Client import Client
 from arch.arch import ActivationFunction, BaseArch, FWArch
-from methods.FedAvg import FedAvg
-from methods.FedPoll import FedPoll
 from utils.common import IpAddr
 import utils.consts as const
 import utils.logger as util
@@ -14,7 +13,7 @@ import torch.nn as nn
 import dataset.dataset as DS
 from core.Server import *
 import torch.optim as optim
-
+from methods.FedPollN import FedPollN
 
 class fedwork:
     def __init__(self):
@@ -35,9 +34,9 @@ class fedwork:
         except TypeError as e:
             return def_val
 
-    def create_datasets(self, dataset_cfg, num_of_nodes):
+    def create_datasets(self, dataset_cfg, num_of_nodes, output_dir = const.OUTPUT_DIR):
 
-        dir_path = os.path.join(const.OUTPUT_DIR, f"dataset")
+        dir_path = os.path.join(output_dir, f"dataset")
         if os.path.exists(dir_path):
             dataset_train_list = []
             file_counter = 0
@@ -58,13 +57,13 @@ class fedwork:
                     return dataset_train_list, dataset_test
 
         vars = dataset_cfg["var"]
-        heterogeneous = self.get_var(vars, "heterogeneous", bool, False)
+        heterogeneous = False#self.get_var(vars, "heterogeneous", bool, False)
         non_iid_level = self.get_var(vars, "non_iid_level", float, 0.5)
         train_batch_size = self.get_var(vars, "train_batch_size", int, 128)
         test_batch_size = self.get_var(vars, "test_batch_size", int, 128)
         num_workers = self.get_var(vars, "num_workers", int, 1)
         save_graph = self.get_var(vars, "save_graph", bool, True)
-        enclose_info = self.get_var(vars, "enclosed_info", bool, False)
+        enclose_info = False#self.get_var(vars, "enclosed_info", bool, False)
 
 
         dataset_train_list, dataset_test = DS.create_datasets(num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level, train_batch_size, test_batch_size, num_workers, save_graph, enclose_info)
@@ -158,6 +157,15 @@ class fedwork:
             util.logger.log_error("Invalid config file! Tag 'fedwork' tag is not found.")
             return
         
+        cfg_name = fedwork_cfg.get("@name")
+        if cfg_name is None:
+            util.logger.log_error("Invalid config file! A specific name have to be assigned to the configuration.")
+            return
+        
+        output_path = os.path.join(const.OUTPUT_DIR, cfg_name)
+        if not os.path.exists(output_path):
+            os.mkdir(output_path)
+
         dataset_cfg = fedwork_cfg.get("dataset")
         if dataset_cfg is None:
             util.logger.log_error("Invalid config file! Tag 'dataset' is not found.")
@@ -191,7 +199,7 @@ class fedwork:
         
         # Step 1.
         # Generate datasets
-        train_dataset_list, test_dataset = self.create_datasets(dataset_cfg, int(fedwork_cfg["@num_of_nodes"]))
+        train_dataset_list, test_dataset = self.create_datasets(dataset_cfg, int(fedwork_cfg["@num_of_nodes"]), output_path)
         
         attr_net_port = "@net_port"
         def_net_port = "12345"
@@ -218,23 +226,25 @@ class fedwork:
         for method in methods_cfg:
         
             attr_method_type = "@type"
+            attr_method_name = "@name"
 
             if not attr_method_type in method.keys():
                 util.logger.log_error(f"Method type is not determined!")
                 continue
 
             method_type = method[attr_method_type]
+            method_name = method[attr_method_name]
 
-            probes_data_path = os.path.join(const.OUTPUT_DIR, f"{method_type}_probes_data.data")
+            probes_data_path = os.path.join(output_path, f"{method_name}_probes_data.data")
 
             if os.path.exists(probes_data_path):
-                util.logger.log_info(f"Information for method '{method_type}' has been found!")
+                util.logger.log_info(f"Information for method '{method_name}(type={method_type})' has been found!")
 
                 if os.path.exists(probes_data_path):
                     with open(probes_data_path, "rb") as f:
-                        probes_bin[method_type] = f.read()
+                        probes_bin[method_name] = f.read()
                 else:
-                    probes_bin[method_type] = None
+                    probes_bin[method_name] = None
 
                 continue
 
@@ -244,6 +254,7 @@ class fedwork:
             method_platform = method[attr_method_platform] if attr_method_platform in method.keys() else attr_method_platform_def
 
             method_num_of_epochs = self.get_var(method["var"], "epochs_num", int, 5)
+            method_args = self.get_var(method["var"], "args", str, "")
 
             method_path = os.path.join("methods", f"{method_type}.py")
             if not os.path.exists(method_path):
@@ -316,13 +327,17 @@ class fedwork:
                             break
                 
             arch.Build()
-            global_model = arch.CreateModel()
-            
+            global_model = arch.CreateModel().to(method_platform)
+
             loss_func = self.get_loss_function(eval_criterion)
 
             weights = [(float(len(dataloader.dataset)) / float(sum([len(dataloader.dataset) for  dataloader in train_dataset_list]))) for dataloader in train_dataset_list]
 
-            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights))
+            if method_args == "":
+                method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform))
+            else:
+                method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
+            
             server = Server(IpAddr(net_ip, net_port), method_obj, test_dataset, global_model, loss_func, method_platform)
 
             localclients_tag = "localclients"
@@ -333,6 +348,7 @@ class fedwork:
                 attr_momentum = "@momentum"
                 attr_weight_decay = "@weight_decay"
                 attr_optimizer = "@optimizer"
+                attr_platform = "@platform"
                 localclients_num_key = "#text"
 
                 if not attr_learning_rate in localclients_cfg.keys():
@@ -359,6 +375,7 @@ class fedwork:
                 momentum = float(localclients_cfg[attr_momentum])
                 weight_decay = float(localclients_cfg[attr_weight_decay])
                 localclients_num = int(localclients_cfg[localclients_num_key])
+                client_platform = localclients_cfg[attr_platform]
                 optimizer = self.get_optimizer_class(localclients_cfg[attr_optimizer])
 
                 if localclients_num > len(train_dataset_list):
@@ -368,9 +385,13 @@ class fedwork:
                 
                 if localclients_num != 0:
                     for client_id in range(localclients_num):
-                        model = arch.CreateModel()
-                        method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights))
-                        new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, "cpu")
+                        model = arch.CreateModel().to(method_platform)
+                        if method_args == "":
+                            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform))
+                        else:
+                            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
+                        
+                        new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform)
                         self.local_clients.append(new_client)
 
             server.start_training()
@@ -379,11 +400,26 @@ class fedwork:
             probes = profiler.dump_probes()
             
             if len(probes) != 0:
-                probes_bin[method_type] = pickle.dumps(probes)
+                method_info = {}
+                method_info["cfg_name"] = cfg_name
+                method_info["ds_type"] = dataset_cfg["@type"]
+                method_info["ds_vars"] = dataset_cfg["var"]
+                method_info["method_name"] = method_name
+                method_info["method_args"] = method_args
+                method_info["method_type"] = method_type
+                method_info["method_platform"] = method_platform
+                method_info["method_class"] = method_class
+                method_info["method_path"] = method_path
+                method_info["method_num_of_epochs"] = method_num_of_epochs
+                method_info["arch_type"] = arch_type_str
+                method_info["arch_cfg_vars"] = arch_cfg_vars
+
+                probes["method_info"] = method_info
+                probes_bin[method_name] = pickle.dumps(probes)
                 with open(probes_data_path, "wb") as f:
-                    f.write(probes_bin[method_type])
+                    f.write(probes_bin[method_name])
             else:
-                probes_bin[method_type] = None
+                probes_bin[method_name] = None
 
             server.release_all()
 
@@ -408,9 +444,11 @@ class fedwork:
             plt.figure()
             attr_name = "@name"
             attr_x_axis = "@x_axis"
+            attr_x_axis_range = "@x_axis_range"
             attr_y_axis = "@y_axis"
             attr_methods = "@methods"
             attr_caption = "@caption"
+            attr_labels = "@labels"
             attr_x_axis_title = "@x_axis_title"
             attr_y_axis_title = "@y_axis_title"
             attr_x_axis_scale = "@x_axis_scale"
@@ -426,7 +464,7 @@ class fedwork:
                 x_axis = "Round"
             else:
                 x_axis = fig["@x_axis"]
-                
+
             if not attr_y_axis in fig.keys():
                 util.logger.log_error(f"Figure '{attr_name}' should have a y_axis attribute!")
                 break
@@ -455,6 +493,11 @@ class fedwork:
             if attr_y_axis_scale in fig.keys():
                 y_axis_scale = float(fig[attr_y_axis_scale])
 
+            y_labels = None
+            if attr_labels in fig.keys():
+                y_labels = str(fig[attr_labels]).split(",")
+            
+            plot_index = 0
             for method in methods:
 
                 if not method in probes_bin:
@@ -466,32 +509,51 @@ class fedwork:
                 probes_vars = probes["var_values"]
                 probes_var_changes = probes["var_changes"]
 
-                if y_axis in probes_times_prof:
-                    fig_data = probes_times_prof[y_axis]
-                elif y_axis in probes_vars:
-                    fig_data = probes_vars[y_axis]
-                elif y_axis in probes_var_changes:
-                    fig_data = probes_var_changes[y_axis]
-                else:
-                    util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
-                    break
+                y_axis_params = str(fig[attr_y_axis]).split(",")
                 
-                time = [(fig_data_elem[0] - fig_data[0][0]) for fig_data_elem in fig_data]
-                round = [fig_data_elem[1] for fig_data_elem in fig_data]
-                y = [fig_data_elem[2] for fig_data_elem in fig_data]
+                for y_axis in y_axis_params:
+                    if y_axis in probes_times_prof:
+                        fig_data = probes_times_prof[y_axis]
+                    elif y_axis in probes_vars:
+                        fig_data = probes_vars[y_axis]
+                    elif y_axis in probes_var_changes:
+                        fig_data = probes_var_changes[y_axis]
+                    else:
+                        util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
+                        break
+                    
 
-                x = []
-                if x_axis == "round":
-                    x = round
-                elif x_axis == "time":
-                    x = time
-                else:
-                    util.logger.log_error(f"'{x_axis}' does not defined for figure '{name}' was not found!")
-                    break
-                x = [x_v * x_axis_scale for x_v in x]
-                y = [y_v * y_axis_scale for y_v in y]
-                plt.plot(x, y, label=method)
+                    if not attr_x_axis_range in fig.keys():
+                        time = [(fig_data_elem[0] - fig_data[0][0]) for fig_data_elem in fig_data]
+                        round = [fig_data_elem[1] for fig_data_elem in fig_data]
+                    else:
+                        x_range_str = fig[attr_x_axis_range]
+                        x_range = str.split(x_range_str, ",")
+                        x_range_start = float(x_range[0])
+                        x_range_end = float(x_range[1])
+                        time = [(fig_data_elem[0] - fig_data[0][0]) for fig_data_elem in fig_data if ((fig_data_elem[0] - fig_data[0][0]) >= x_range_start and (fig_data_elem[0] - fig_data[0][0]) <= x_range_end)]
+                        round = [fig_data_elem[1] for fig_data_elem in fig_data if (fig_data_elem[1] >= x_range_start and fig_data_elem[1] <= x_range_end)]
 
+                    y = [fig_data_elem[2] for fig_data_elem in fig_data]
+
+                    x = []
+                    if x_axis == "round":
+                        x = round
+                    elif x_axis == "time":
+                        x = time
+                    else:
+                        util.logger.log_error(f"'{x_axis}' does not defined for figure '{name}' was not found!")
+                        break
+                    x = [x_v * x_axis_scale for x_v in x]
+                    y = [y_v * y_axis_scale for y_v in y]
+
+                    if y_labels:
+                        plt.plot(x, y, label=y_labels[plot_index])
+                    elif len(y_axis_params) == 1:
+                        plt.plot(x, y, label=method)
+                    else:
+                        plt.plot(x, y, label=f"{method}.{y_axis}")
+                    plot_index += 1
             x_axis_title = x_axis
             y_axis_title = y_axis
 
@@ -506,8 +568,9 @@ class fedwork:
             plt.title(fig_caption)
             plt.legend()
 
-            dir_path = os.path.join(const.OUTPUT_DIR, f'{name}.png')
-            plt.savefig(dir_path)
+            dir_path = os.path.join(output_path, f'{name}.pdf')
+            plt.grid()
+            plt.savefig(dir_path, format="pdf", bbox_inches="tight")
 
 
     def get_config(self, file_name):
@@ -529,8 +592,14 @@ class fedwork:
             return
         
         util.logger.log_debug(f"File '{config}' was found.")
+
         self.run(config_text)
 
 
-fedwork_ins = fedwork()
-fedwork_ins.start("config_fedpoll.xml")
+if __name__ == "__main__":
+    if len(sys.argv) == 1:
+        print("Configuration file was not determined!\nUse: fedwork.py configuration_xml_file")
+        exit()
+
+    fedwork_ins = fedwork()
+    fedwork_ins.start(sys.argv[1])

@@ -18,10 +18,12 @@ class ClientComm(Network):
 
         self.alive = True
         self.client_evt_fn = client_evt_fn
-        self.recv_thread = threading.Thread(target=self.__recv_from_server)
+        self.kill_rcv_th = threading.Event()
+
+        self.recv_thread = threading.Thread(target=self.__recv_from_server, args=(self.kill_rcv_th, ))
         self.connect_to_server()
         self.recv_thread.start()
-        
+
         logger.log_debug(f"[{name}]: Initialization done.")
         
         
@@ -32,9 +34,9 @@ class ClientComm(Network):
         self.send_intro_to_server()
         self.create_new_receiver(self.name, self.socket)
 
-    def __recv_from_server(self):
+    def __recv_from_server(self, kill_rcv_th):
         logger.log_debug(f"[{self.name}]: Receiving thread has been started.")
-        while self.alive:
+        while not kill_rcv_th.is_set():
 
             packet_type, packet_param1, packet_param2, payload_size, data, _ = self.receive_data()
             
@@ -43,8 +45,10 @@ class ClientComm(Network):
                 if packet_param1 == COMM_HEADER_CMD_NOP:
                     pass
                 elif packet_param1 == COMM_HEADER_CMD_TURNOFF:
-                    self.alive = False
+                    self.release_all()
                     self.client_evt_fn(COMM_EVT_TURNOFF, None)
+                    self.socket.close()
+                    self.kill_rcv_th.set()
                 elif packet_param1 == COMM_HEADER_CMD_START_TRAINNING:
                     self.client_evt_fn(COMM_EVT_TRAINING_START, Common.data_convert_from_bytes(data))
                 elif packet_param1 == COMM_HEADER_CMD_GET_TOTAL_EPOCHS:

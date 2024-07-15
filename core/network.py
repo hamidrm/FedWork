@@ -9,11 +9,16 @@ from utils.logger import *
 
 class Network:
     def __init__(self):
-        self.recv_queue = queue.Queue(maxsize=10)
 
-        self.send_queue = queue.Queue(maxsize=10)
 
-        self.sending_thread = threading.Thread(target=self.__send_thread)
+        self.send_thread_stop = threading.Event()
+        self.recv_thread_stop = []
+
+        self.recv_queue = queue.Queue(maxsize=4)
+
+        self.send_queue = queue.Queue(maxsize=4)
+
+        self.sending_thread = threading.Thread(target=self.__send_thread, args=(self.send_thread_stop, ))
         self.sending_thread.start()
 
         self.receiving_threads = []
@@ -26,11 +31,31 @@ class Network:
         self.no_sent_total = 0
         self.no_rcvd_total = 0
 
+    def release_all(self):
+        self.send_thread_stop.set()
+        for stop_evt in self.recv_thread_stop:
+            stop_evt.set()
+
+        self.sending_thread.join()
+
+        for rt in self.receiving_threads:
+            rt.join()
+        
+        # Flush Queues
+        while not self.recv_queue.empty:
+            self.recv_queue.get_nowait()
+        while not self.send_queue.empty:
+            self.send_queue.get_nowait()
+
     def create_new_receiver(self, recv_id, connection):
-        thread = threading.Thread(target=self.__receive_data, args=(recv_id, connection, ))
+        
+        self.recv_thread_stop.append(threading.Event())
+        thread = threading.Thread(target=self.__receive_data, args=(recv_id, connection, self.recv_thread_stop[self.thread_num], ))
         thread.start()
         self.receiving_threads.append(None)
         self.receiving_threads[self.thread_num] = thread
+
+        
         self.thread_num += 1
         return thread
 
@@ -58,8 +83,8 @@ class Network:
                 logger.log_error("Send queue is full. Waiting...")
                 time.sleep(0.5)
 
-    def __send_thread(self):
-        while True:
+    def __send_thread(self, send_thread_stop):
+        while not send_thread_stop.is_set():
             try:
                 item = self.send_queue.get()
                 self.__send_data(item["connection"], item["receiver_id"], item["type"], item["param1"], item["param2"], item["data"])
@@ -147,14 +172,14 @@ class Network:
             received_data += data_chunk
         return received_data
 
-    def __receive_data(self, recv_id, connection):
+    def __receive_data(self, recv_id, connection, recv_thread_stop):
         expected_length = 0
         received_length = 0
         total_data = []
         seq_list = []
 
 
-        while True:
+        while not recv_thread_stop.is_set():
             chunk = self.recvall(connection, COMM_CHUNK_TOTAL_SIZE)
 
             header_data   = struct.unpack(COMM_HEADER_FORMAT, chunk[:COMM_HEADER_SIZE])
@@ -204,30 +229,4 @@ class Network:
                         logger.log_debug(f"{len(total_data)} bytes have received. rcv_id={packet_id}, packet_type={hex(packet_type)}, packet_param1={hex(packet_param1)}")
                         self.__add_to_recv_packet(packet_type, packet_param1, packet_param2, expected_length, bytes(total_data), recv_id)
                     else:
-                        logger.log_error(f"We faced such a critical and vital problem!'.")
-                        # expected_seq_list = [i for i in range(int((expected_length - COMM_HCHUNK_TOTAL_DATA_SIZE) / COMM_TCHUNK_TOTAL_DATA_SIZE)) if i not in seq_list]
-                        # # We have lost some packets :(
-                        # # We must request resend them
-                        # for packet_num in expected_seq_list:
-                        #     while True:
-                        #         self.send_command(recv_id, COMM_HEADER_CMD_REQUEST_PACKET_NUM, packet_num, None)
-                        #         chunk = connection.recv(COMM_CHUNK_TOTAL_SIZE)
-                                
-                        #         tails_data   = struct.unpack(COMM_TAILS_FORMAT, chunk[:COMM_TAILS_SIZE])
-                        #         tails_dict = dict(zip(COMM_TAILS_DICT.keys(), tails_data))
-
-                        #         payload_size  = tails_dict["payload_len"]
-                        #         packet_seq   = tails_dict["sequence"]
-                        #         packet_id     = tails_dict["id"].decode('ascii').rstrip('\x00')
-
-                        #         if packet_id != recv_id:
-                        #             logger.log_warning(f"Invalid chunk is read! expected: '{recv_id}', received: '{packet_id}'.")
-                        #             continue
-
-                        #         if packet_seq != packet_num:
-                        #             logger.log_warning(f"Invalid packet chunk received! expected seq: '{packet_num}', received: '{packet_seq}'.")
-                        #             continue
-
-                        #         total_data[packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE:packet_seq * COMM_TCHUNK_TOTAL_DATA_SIZE + COMM_HCHUNK_TOTAL_DATA_SIZE + payload_size] = chunk[COMM_TAILS_SIZE:COMM_TAILS_SIZE+payload_size]
-                        #         received_length += payload_size
-                        # return (packet_type, packet_param1, packet_param2, expected_length, bytes(total_data))
+                        logger.log_error(f"We encountered such a critical and vital problem!'.")

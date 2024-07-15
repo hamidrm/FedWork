@@ -1,4 +1,5 @@
 import pickle
+import time
 
 class ClientData:
 
@@ -43,3 +44,18 @@ class Common:
     def data_convert_from_bytes(bytes_data):
         data = pickle.loads(bytes_data)
         return data
+    
+    @staticmethod
+    def get_param_in_args(args_str, param, def_val):
+         args = str(args_str).split(",")
+         for arg in args:
+            param_value = str(arg).split("=")
+            if len(param_value) == 2:
+                if param_value[0] == param:
+                    return param_value[1]
+         return def_val     
+
+    @staticmethod
+    def time_ns():
+        return time.time() * 1000000000  
+        

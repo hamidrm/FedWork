@@ -7,7 +7,7 @@ class FederatedLearningClass(ABC):
 
     def set_server(self, server):
         self.server = server
-
+        
     @abstractmethod
     def get_name(self):
         pass
@@ -33,7 +33,7 @@ class FederatedLearningClass(ABC):
         pass
     
     @abstractmethod
-    def pack_client_model(self, raw_model):
+    def pack_client_model(self, raw_model, global_model=None):
         pass
 
     @abstractmethod

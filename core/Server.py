@@ -146,9 +146,11 @@ class Server:
             self.method_is_processing_lock.acquire()
 
     def release_all(self):
-        self.wait_for_method()
         for client in self.server_comm.clients:
             self.server_comm.send_command(client["name"], COMM_HEADER_CMD_TURNOFF, 0)
+
+    def save_var(self, var_name, var_value):
+        profiler.save_variable(str(var_name), var_value, self.round_number)
 
     def evaluate_model(self):
         self.global_model.eval()

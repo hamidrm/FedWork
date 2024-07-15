@@ -7,11 +7,13 @@ from utils.consts import *
 from core.FederatedLearningClass import *
 from core.ClientComm import *
 from utils.logger import *
+import copy
 
 class Client:
     def __init__(self, name, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, method: FederatedLearningClass,executer = "cpu"):
         
         self.client_model = model
+        self.global_model = copy.deepcopy(model)
         self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum, weight_decay=hyperparameters.weight_decay)
         self.criterion = loss().to(executer)
         self.executer = executer
@@ -61,6 +63,7 @@ class Client:
 
     def set_model(self, model):
         self.client_model.load_state_dict(model)
+        self.global_model.load_state_dict(model)
 
     def get_model_dict(self):
         return self.client_model.state_dict()
@@ -101,46 +104,54 @@ class Client:
                                                      last_epoch=-1)
         self.client_model.to(self.executer)
         self.training_count += 1
+
         for epoch in range(epochs_num):
             self.total_epochs += 1
             # Training
+
             self.client_model.train()
 
             running_loss = 0
             running_corrects = 0
-
+            #logger.log_debug(f'[{self.name}]: D4')
             for inputs, labels in self.dataset:
                 inputs = inputs.to(self.executer)
                 labels = labels.to(self.executer)
-
+                #logger.log_debug(f'[{self.name}]: D5')
                 # zero the parameter gradients
                 self.client_optimizer.zero_grad()
-
+                
                 # forward + backward + optimize
                 outputs = self.client_model(inputs)
+                
                 _, preds = torch.max(outputs, 1)
+                
                 loss = self.criterion(outputs, labels)
-                torch.autograd.set_detect_anomaly(True)
+                
+                #torch.autograd.set_detect_anomaly(True)
+                
                 loss.backward()
+                
                 self.client_optimizer.step()
-
                 # statistics
                 running_loss += loss.item() * inputs.size(0)
                 running_corrects += torch.sum(preds == labels.data)
-
+                
             train_loss = running_loss / len(self.dataset.dataset)
             train_accuracy = running_corrects / len(self.dataset.dataset)
             
             epoch_info = {}
             epoch_info["accuracy"] = train_accuracy.item()
             epoch_info["loss"] = train_loss
-            
+
+            logger.log_debug(f'[{self.name}]: Epoch Done!')
             self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_EPOCH_DONE, 0, epoch_info)
+
             if lr_scheduler_milestone_list is not None:
                 scheduler.step()
         
         if self.method != None:
-            packed_data = self.method.pack_client_model(self.client_model.state_dict())
+            packed_data = self.method.pack_client_model(self.client_model.state_dict(), global_model = self.global_model.state_dict())
             self.client_comm.send_data_to_server(packed_data)
         self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_TRAINNING_DONE, 0)
         self.is_training_lock.release()

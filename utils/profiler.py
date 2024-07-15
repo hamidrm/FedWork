@@ -89,11 +89,11 @@ class profiler:
             return
         self.profiles_lock[name] = True
 
-        self.profiles_start[name] = time.time_ns() // 1000
+        self.profiles_start[name] = common.Common.time_ns() // 1000
         
 
     def measure_time(self, name: str, key=0):
-        elapsed_us = (time.time_ns() // 1000) - self.profiles_start[name]
+        elapsed_us = (common.Common.time_ns() // 1000) - self.profiles_start[name]
         self.profiles_list[name].append((time.time(), key, elapsed_us))
         self.profiles_lock[name] = False
 

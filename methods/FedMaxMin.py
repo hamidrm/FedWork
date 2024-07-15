@@ -1,4 +1,4 @@
-#FedAvg
+#FedMaxMin
 
 import torch
 import torch.nn as nn
@@ -7,7 +7,7 @@ import random
 from utils.logger import *
 
 
-class FedAvg(FederatedLearningClass):
+class FedMaxMin(FederatedLearningClass):
 
     def __init__(self, args = ()):
         super().__init__()
@@ -16,16 +16,18 @@ class FedAvg(FederatedLearningClass):
         self.num_of_nodes_contributor = 0
 
     def get_name(self):
-        return "FedAvg"
+        return "FedMaxMin"
     
     def init_method(self):
         pass
 
     def aggregate(self, clients_models, global_model):
-        fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
         for key in global_model.keys():
-            torch_list_weights = torch.stack([clients_models[i][key].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
-            global_model[key] = torch_list_weights.sum(0)
+            torch_list_weights = torch.stack([clients_models[i][key].float() for i in range(len(clients_models))],0)
+        
+            max_v, _ = torch.max(torch_list_weights, dim=0)
+            min_v, _ = torch.min(torch_list_weights, dim=0)
+            global_model[key] = (max_v + min_v) / 2
 
 
     def start_training(self):
