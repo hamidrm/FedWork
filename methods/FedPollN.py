@@ -23,15 +23,15 @@ class FedPollN(FederatedLearningClass):
         bits = int(common.Common.get_param_in_args(extra_args, "bits", 8))
         self.no_r_mat = 2 ** bits
         self.contributors_percent = int(common.Common.get_param_in_args(extra_args, "contributors_percent", 80))
-        self.initial_radius = float(common.Common.get_param_in_args(extra_args, "initial_radius", 1e-3))
         self.current_seeds = [0] * self.no_r_mat
         self.clients_first_aggregation = True
         self.current_radius = {}
         self.loss0 = -1
         self.current_loss = 0
-        
+        self.epsilon = float(common.Common.get_param_in_args(extra_args, "epsilon", 1e-1))
+
         logger.log_normal(f"===================================================")
-        logger.log_normal(f"bits: {bits}, contributors_percent: {self.contributors_percent}, initial_radius: {self.initial_radius}")
+        logger.log_normal(f"bits: {bits}, contributors_percent: {self.contributors_percent}, epsilon: {self.epsilon}")
         logger.log_normal(f"===================================================")
 
     def get_name(self):
@@ -86,15 +86,11 @@ class FedPollN(FederatedLearningClass):
 
                 torch_list_weights = torch.stack([clients_models_per_key[i].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
                 global_model_new = torch_list_weights.sum(0)
-                global_model_diff = max([torch.linalg.norm(client_model_per_layer - global_model[key]).item() for client_model_per_layer in clients_models_per_key])
+                diff = torch.mean(global_model_new - global_model[key])
 
                 global_model[key] = global_model_new
 
-                #mean = torch.mean(global_model_diff)
-                # while max.dim() > 0:
-                #     max, _ = torch.max(max, dim=0)
-
-                self.current_radius[key] = self.initial_radius * global_model_diff + 0.00000001
+                self.current_radius[key] = diff.item() + self.epsilon
             else:
                 global_model[key] = torch.stack([clients_models[i][key].float() for i in range(len(clients_models))],0).mean(0) #batch trackes are received as long tensors and all model are same
 

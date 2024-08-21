@@ -1,0 +1,66 @@
+<fedwork_cfg name="fedavg_mnist_50p_benchmark" num_of_nodes="10" net_port="31145" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="200">
+	<dataset type="MNIST">
+		<var name="heterogeneous">True</var>
+		<var name="non_iid_level">0.5</var>
+		<var name="train_batch_size">128</var>
+		<var name="test_batch_size">256</var>
+		<var name="num_workers">0</var>
+		<var name="save_graph">True</var>
+		<var name="enclosed_info">False</var>
+	</dataset>
+
+	<localclients learning_rate="0.001" momentum="0.9" weight_decay="1e-7" optimizer="SGD" platform="cuda">10</localclients>
+	<method name="FedProxMethod" type="FedProx" platform="cuda">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">relu</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">contributors_percent=50,mu=1.0</var>
+	</method>
+	<method name="SCAFFOLDMethod" type="SCAFFOLD" platform="cuda">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">relu</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">contributors_percent=50</var>
+	</method>
+	<method name="FedAvgQSGDMethod" type="FedAvgQ" platform="cuda">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">relu</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">levels=7,quantization=QSGD,contributors_percent=50</var>
+	</method>
+	<method name="FedAvgMethod" type="FedAvg" platform="cuda">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">relu</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">contributors_percent=50</var>
+	</method>
+	<method name="FedPollMethod" type="FedPoll" platform="cuda">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">relu</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">no_r=8,epsilon=0.01,contributors_percent=50</var>
+	</method>
+	<method name="FedPollNMethod" type="FedPollN" platform="cuda">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">relu</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">bits=3,epsilon=0.01,contributors_percent=50</var>
+	</method>
+	<report save_log="True" log_over_net="127.0.0.1,23456">
+		<fig style="style=bmh;linewidths=1,1,1,1,1,1;" name="Accuracy" caption=" " x_axis="round" y_axis="EvaluationAccuracy" methods="FedProxMethod,SCAFFOLDMethod,FedAvgQSGDMethod,FedAvgMethod,FedPollMethod,FedPollNMethod" labels="FedProx,SCAFFOLD,FedAvgQSGD,FedAvg,FedPoll-MaxMin,FedPoll-Nearest"/>
+		<fig style="style=bmh;linewidths=1,1,1,1,1,1;" name="Loss" caption=" " x_axis="round" y_axis="EvaluationLoss" methods="FedProxMethod,SCAFFOLDMethod,FedAvgQSGDMethod,FedAvgMethod,FedPollMethod,FedPollNMethod" labels="FedProx,SCAFFOLD,FedAvgQSGD,FedAvg,FedPoll-MaxMin,FedPoll-Nearest"/>
+		<fig style="style=bmh;linewidths=1,1,1,1,1,1;" name="Link" caption=" " x_axis="round" y_axis="ServerDataRecvBytes" methods="FedProxMethod,SCAFFOLDMethod,FedAvgQSGDMethod,FedAvgMethod,FedPollMethod,FedPollNMethod" labels="FedProx,SCAFFOLD,FedAvgQSGD,FedAvg,FedPoll-MaxMin,FedPoll-Nearest"/>
+	</report>
+</fedwork_cfg>

@@ -13,11 +13,12 @@ import torch.nn as nn
 import dataset.dataset as DS
 from core.Server import *
 import torch.optim as optim
-from methods.FedPollN import FedPollN
+from utils.plotter import Plotter
 
 class fedwork:
     def __init__(self):
         self.local_clients = []
+        self.plotter = Plotter()
         logger().set_log_type(logger_log_type.logger_type_debug.value |
                     logger_log_type.logger_type_error.value |
                     logger_log_type.logger_type_info.value |
@@ -57,16 +58,16 @@ class fedwork:
                     return dataset_train_list, dataset_test
 
         vars = dataset_cfg["var"]
-        heterogeneous = False#self.get_var(vars, "heterogeneous", bool, False)
+        heterogeneous = self.get_var(vars, "heterogeneous", bool, False)
         non_iid_level = self.get_var(vars, "non_iid_level", float, 0.5)
         train_batch_size = self.get_var(vars, "train_batch_size", int, 128)
         test_batch_size = self.get_var(vars, "test_batch_size", int, 128)
         num_workers = self.get_var(vars, "num_workers", int, 1)
         save_graph = self.get_var(vars, "save_graph", bool, True)
-        enclose_info = False#self.get_var(vars, "enclosed_info", bool, False)
+        enclose_info = self.get_var(vars, "enclosed_info", bool, False)
 
 
-        dataset_train_list, dataset_test = DS.create_datasets(num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level, train_batch_size, test_batch_size, num_workers, save_graph, enclose_info)
+        dataset_train_list, dataset_test = DS.create_datasets(num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level, train_batch_size, test_batch_size, num_workers, save_graph, enclose_info, dir_path)
 
 
         if not os.path.exists(dir_path):
@@ -166,6 +167,7 @@ class fedwork:
         if not os.path.exists(output_path):
             os.mkdir(output_path)
 
+        logger().set_file_path(output_path)
         dataset_cfg = fedwork_cfg.get("dataset")
         if dataset_cfg is None:
             util.logger.log_error("Invalid config file! Tag 'dataset' is not found.")
@@ -322,6 +324,8 @@ class fedwork:
                             arch.SetParameter(var_name, int(var_text))
                         elif var_type == "act_fn":
                             arch.SetParameter(var_name, self.get_activation_function(var_text))
+                        elif var_type == "bool":
+                            arch.SetParameter(var_name, bool(var_text))
                         else:
                             util.logger.log_error(f"Unexpectedly error in type of the variable '{var_name}'!")
                             break
@@ -439,9 +443,9 @@ class fedwork:
 
         if not isinstance(figs_cfg, list):
             figs_cfg = [figs_cfg]
-
+            
         for fig in figs_cfg:
-            plt.figure()
+            
             attr_name = "@name"
             attr_x_axis = "@x_axis"
             attr_x_axis_range = "@x_axis_range"
@@ -453,7 +457,7 @@ class fedwork:
             attr_y_axis_title = "@y_axis_title"
             attr_x_axis_scale = "@x_axis_scale"
             attr_y_axis_scale = "@y_axis_scale"
-
+            attr_style = "@style"
             fig_caption = ""
 
             if not attr_name in fig.keys():
@@ -485,6 +489,11 @@ class fedwork:
             else:
                 fig_caption = fig[attr_caption]
 
+            if not attr_style in fig.keys():
+                style = ""
+            else:
+                style = fig[attr_style]
+
             x_axis_scale = 1.0
             if attr_x_axis_scale in fig.keys():
                 x_axis_scale = float(fig[attr_x_axis_scale])
@@ -498,6 +507,9 @@ class fedwork:
                 y_labels = str(fig[attr_labels]).split(",")
             
             plot_index = 0
+
+            self.plotter.plot_begin(style_str=style)
+            
             for method in methods:
 
                 if not method in probes_bin:
@@ -522,38 +534,57 @@ class fedwork:
                         util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
                         break
                     
+                    x = []
+                    y = []
 
                     if not attr_x_axis_range in fig.keys():
-                        time = [(fig_data_elem[0] - fig_data[0][0]) for fig_data_elem in fig_data]
-                        round = [fig_data_elem[1] for fig_data_elem in fig_data]
+                        if x_axis == "round":
+                            x = [fig_data_elem[1] for fig_data_elem in fig_data]
+                        elif x_axis == "time":
+                            x = [(fig_data_elem[0] - fig_data[0][0]) for fig_data_elem in fig_data]
+                        else:
+                            util.logger.log_error(f"'{x_axis}' does not defined for figure '{name}' was not found!")
+                            break
+                        y = [fig_data_elem[2] for fig_data_elem in fig_data]
                     else:
                         x_range_str = fig[attr_x_axis_range]
                         x_range = str.split(x_range_str, ",")
                         x_range_start = float(x_range[0])
-                        x_range_end = float(x_range[1])
-                        time = [(fig_data_elem[0] - fig_data[0][0]) for fig_data_elem in fig_data if ((fig_data_elem[0] - fig_data[0][0]) >= x_range_start and (fig_data_elem[0] - fig_data[0][0]) <= x_range_end)]
-                        round = [fig_data_elem[1] for fig_data_elem in fig_data if (fig_data_elem[1] >= x_range_start and fig_data_elem[1] <= x_range_end)]
+                        x_range_end = 0
+                        if x_axis == "round":
+                            x_range_end = float(x_range[1]) if float(x_range[1]) != -1 else max(fig_data[:][1])
 
-                    y = [fig_data_elem[2] for fig_data_elem in fig_data]
+                            for i in range(len(fig_data)):
+                                if fig_data[i][1] >= x_range_start and fig_data[i][1] <= x_range_end:
+                                    x.append(fig_data[i][1])
+                                    y.append(fig_data[i][2])
+                            
+                        elif x_axis == "time":
+                            x_range_end = float(x_range[1]) if float(x_range[1]) != -1 else max(fig_data[:][0])
+                            for i in range(len(fig_data)):
+                                if (fig_data[i][0] - fig_data[0][0]) >= x_range_start and (fig_data[i][0] - fig_data[0][0]) <= x_range_end:
+                                    x.append(fig_data[i][0])
+                                    y.append(fig_data[i][2])
+                        else:
+                            util.logger.log_error(f"'{x_axis}' does not defined for figure '{name}' was not found!")
+                            break
+                    
 
-                    x = []
-                    if x_axis == "round":
-                        x = round
-                    elif x_axis == "time":
-                        x = time
-                    else:
-                        util.logger.log_error(f"'{x_axis}' does not defined for figure '{name}' was not found!")
-                        break
+                   
                     x = [x_v * x_axis_scale for x_v in x]
                     y = [y_v * y_axis_scale for y_v in y]
 
                     if y_labels:
-                        plt.plot(x, y, label=y_labels[plot_index])
+                        ylabel=y_labels[plot_index]
                     elif len(y_axis_params) == 1:
-                        plt.plot(x, y, label=method)
+                        ylabel=method
                     else:
-                        plt.plot(x, y, label=f"{method}.{y_axis}")
+                        ylabel=f"{method}.{y_axis}"
+                    
+                    self.plotter.plot(x, y, ylabel, style, plot_index)
                     plot_index += 1
+            
+
             x_axis_title = x_axis
             y_axis_title = y_axis
 
@@ -563,14 +594,8 @@ class fedwork:
             if attr_y_axis_title in fig.keys():
                 y_axis_title = fig[attr_y_axis_title]
 
-            plt.xlabel(x_axis_title)
-            plt.ylabel(y_axis_title)
-            plt.title(fig_caption)
-            plt.legend()
-
-            dir_path = os.path.join(output_path, f'{name}.pdf')
-            plt.grid()
-            plt.savefig(dir_path, format="pdf", bbox_inches="tight")
+            figure_path = os.path.join(output_path, f'{name}.pdf')
+            self.plotter.plot_end(x_axis_title, y_axis_title, fig_caption, figure_path)
 
 
     def get_config(self, file_name):

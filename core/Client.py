@@ -28,6 +28,7 @@ class Client:
         self.periodic_training_epochs = 5
         self.periodic_training_lr_mileston = []
         self.periodic_training_gamma = 0
+        self.lr = hyperparameters.learning_rate
         self.is_training_lock = threading.Lock()
         self.client_comm = ClientComm(name, ip_addr.get_ip(), ip_addr.get_port(), self.__client_evt_cb)
         logger.log_debug(f"[{name}]: Initialization done.")
@@ -105,38 +106,53 @@ class Client:
         self.client_model.to(self.executer)
         self.training_count += 1
 
+
+
         for epoch in range(epochs_num):
             self.total_epochs += 1
-            # Training
 
             self.client_model.train()
 
             running_loss = 0
             running_corrects = 0
-            #logger.log_debug(f'[{self.name}]: D4')
+            
+            client_train_dict = {}
+            client_train_dict["client_optimizer"] = self.client_optimizer
+            client_train_dict["client_model"] = self.client_model
+            client_train_dict["criterion"] = self.criterion
+            client_train_dict["lr"] = self.lr
+            client_train_dict["global_model_state"] = self.global_model.state_dict()
             for inputs, labels in self.dataset:
+
                 inputs = inputs.to(self.executer)
                 labels = labels.to(self.executer)
-                #logger.log_debug(f'[{self.name}]: D5')
-                # zero the parameter gradients
-                self.client_optimizer.zero_grad()
+
+                client_train_dict["inputs"] = inputs
+                client_train_dict["labels"] = labels
                 
-                # forward + backward + optimize
-                outputs = self.client_model(inputs)
-                
-                _, preds = torch.max(outputs, 1)
-                
-                loss = self.criterion(outputs, labels)
-                
-                #torch.autograd.set_detect_anomaly(True)
-                
-                loss.backward()
-                
-                self.client_optimizer.step()
-                # statistics
-                running_loss += loss.item() * inputs.size(0)
-                running_corrects += torch.sum(preds == labels.data)
-                
+
+                method_training = self.method.train(client_train_dict)
+                if method_training is not None:
+                    running_loss_new, running_corrects_new = method_training
+                    running_loss += running_loss_new
+                    running_corrects += running_corrects_new
+                else:
+                    self.client_optimizer.zero_grad()
+                    outputs = self.client_model(inputs)
+                    _, preds = torch.max(outputs, 1)
+                    loss = self.criterion(outputs, labels)
+                    loss.backward()
+                    self.client_optimizer.step()
+
+                    # statistics
+                    running_loss += loss.item() * inputs.size(0)
+                    running_corrects += torch.sum(preds == labels.data)
+
+            model = self.method.train_after_optimization(client_train_dict, epoch)
+            
+            if model is not None:
+                self.client_model = model
+            
             train_loss = running_loss / len(self.dataset.dataset)
             train_accuracy = running_corrects / len(self.dataset.dataset)
             

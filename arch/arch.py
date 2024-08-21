@@ -11,6 +11,7 @@ class BaseArch(Enum):
     FeedForwardNet2 = "FeedForwardNet2"
     ResNet18 = "ResNet18"
     ResNet34 = "ResNet34"
+    VGG16 = "VGG16"
 
 class ActivationFunction(Enum):
     ReLUFunction = "relu"
@@ -56,7 +57,10 @@ class FWArch:
     
     def SetParameter(self, parameter_name, parameter_value):
         if parameter_name in self.variables_type.keys():
-            if self.variables_type[parameter_name] == "integer":
+            if self.variables_type[parameter_name] == "bool":
+                parameter_value = bool(parameter_value)
+                self.variables_value[parameter_name] = parameter_value
+            elif self.variables_type[parameter_name] == "integer":
                 parameter_value = int(parameter_value)
                 self.variables_value[parameter_name] = parameter_value
             elif self.variables_type[parameter_name] == "act_fn":

@@ -48,6 +48,12 @@ class FederatedLearningClass(ABC):
     def unpack_server_model(self, packed_model):
         pass
 
+    def train(self, client_train_dict : dict):
+        return None
+    
+    def train_after_optimization(self, client_train_dict : dict, epoch_num):
+        return None
+    
     def set_hyperparameters(self, learning_rate : float, momentum : float, weight_decay : float):
         self.learning_rate = learning_rate
         self.momentum = momentum

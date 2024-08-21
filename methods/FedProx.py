@@ -1,4 +1,4 @@
-#FedAvg
+#FedProx
 
 import torch
 import torch.nn as nn
@@ -7,17 +7,19 @@ import random
 from utils.logger import *
 from utils.profiler import *
 
-class FedAvg(FederatedLearningClass):
+class FedProx(FederatedLearningClass):
 
     def __init__(self, args = ()):
         super().__init__()
         self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
         self.contributors_percent = int(common.Common.get_param_in_args(extra_args, "contributors_percent", 100))
+        self.mu = float(common.Common.get_param_in_args(extra_args, "mu", 0.0))
         self.num_of_nodes_contributor = 0
         self.round_num = 0
 
+
     def get_name(self):
-        return "FedAvg"
+        return "FedProx"
     
     def init_method(self):
         pass
@@ -28,11 +30,6 @@ class FedAvg(FederatedLearningClass):
             torch_list_weights = torch.stack([clients_models[i][key].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
             global_model[key] = torch_list_weights.sum(0)
         
-        StdD = self.calculate_sigma_l2_norm(clients_models, global_model)
-        profiler().save_variable("StdD", StdD, self.round_num)
-        logger.log_normal(f"===================================================")
-        logger.log_normal(f"= Std.Dev. : {StdD}")
-        logger.log_normal(f"===================================================")
         self.round_num += 1
 
 
@@ -74,22 +71,36 @@ class FedAvg(FederatedLearningClass):
         else:
             return False
         
-    def calculate_sigma_l2_norm(self, local_models, global_model):
-        N = len(local_models)
-        
-        sum_squared_deviations = {}
-        
-        for param_name, global_param in global_model.items():
-            sum_squared_deviations[param_name] = torch.zeros_like(global_param)
+    def train(self, client_train_dict):
+        client_optimizer = client_train_dict["client_optimizer"]
+        client_model = client_train_dict["client_model"]
+        global_model = client_train_dict["global_model_state"]
+        criterion = client_train_dict["criterion"]
+        inputs = client_train_dict["inputs"]
+        labels = client_train_dict["labels"]
 
-            for local_model in local_models:
-                local_param = local_model[param_name]
-                sum_squared_deviations[param_name] += (local_param - global_param) ** 2
-            
-            sum_squared_deviations[param_name] /= N
-        
-        std_devs = {param_name: torch.sqrt(squared_deviation) for param_name, squared_deviation in sum_squared_deviations.items()}
-        
-        l2_norm = torch.sqrt(sum(torch.sum(std_dev ** 2) for std_dev in std_devs.values()))
-        
-        return l2_norm.item()
+        client_optimizer.zero_grad()
+        outputs = client_model(inputs)
+        _, preds = torch.max(outputs, 1)
+
+        # Calculate the original loss
+        loss = criterion(outputs, labels)
+
+        # Add the FedProx proximal term
+        prox_term = 0.0
+        for (name, param) in client_model.named_parameters():
+            global_param = global_model[name]
+            prox_term += ((param - global_param) ** 2).sum()
+        prox_term *= (self.mu / 2.0)
+
+        # Total loss with FedProx term
+        total_loss = loss + prox_term
+
+        # Backpropagation
+        total_loss.backward()
+        client_optimizer.step()
+
+        running_loss = total_loss.item() * inputs.size(0)
+        running_corrects = torch.sum(preds == labels.data)
+
+        return running_loss, running_corrects

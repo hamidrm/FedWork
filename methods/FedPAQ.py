@@ -87,3 +87,5 @@ class FedPAQ(FederatedLearningClass):
             return True
         else:
             return False
+
+        

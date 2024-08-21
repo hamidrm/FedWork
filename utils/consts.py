@@ -33,9 +33,9 @@ COMM_HEADER_FORMAT = "!IIIhh8s"
 COMM_HEADER_DICT = {"packet_sign" : 0, "payload_len" : 0, "type" : 0, "param1" : 0, "param2" : 0, "id" : 0}
 
 
-COMM_TAILS_SIZE = 18
+COMM_TAILS_SIZE = 20
 COMM_TCHUNK_TOTAL_DATA_SIZE = (COMM_CHUNK_TOTAL_SIZE - COMM_TAILS_SIZE)
-COMM_TAILS_FORMAT = "!I8sIH"
+COMM_TAILS_FORMAT = "!I8sII"
 COMM_TAILS_DICT = {"packet_sign" : 0, "id" : 0, "payload_len" : 0, "sequence" : 0}
 
 COMM_HEADER_SIGN = 0xFEDAFEDA
