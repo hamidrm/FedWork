@@ -1,12 +1,11 @@
 #FedAvg
 
 import torch
-import torch.nn as nn
 from core.FederatedLearningClass import *
 import random
 from utils.logger import *
 import copy
-import math
+from utils.common import Common
 
 class FedPoll(FederatedLearningClass):
 
@@ -17,9 +16,9 @@ class FedPoll(FederatedLearningClass):
         self.client_side_r_tensors = []
         
         self.first_aggregation = True
-        self.no_r_mat = int(common.Common.get_param_in_args(extra_args, "no_r", 8))
-        self.contributors_percent = int(common.Common.get_param_in_args(extra_args, "contributors_percent", 80))
-        self.epsilon = float(common.Common.get_param_in_args(extra_args, "epsilon", 1e-1))
+        self.no_r_mat = int(Common.get_param_in_args(extra_args, "no_r", 8))
+        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 80))
+        self.epsilon = float(Common.get_param_in_args(extra_args, "epsilon", 1e-1))
         self.num_of_nodes_contributor = 0
         self.current_seeds = [0] * self.no_r_mat
         self.clients_first_aggregation = True
@@ -68,7 +67,7 @@ class FedPoll(FederatedLearningClass):
             
         for key in global_model.keys():
             
-            if global_model[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key):
+            if Common.is_trainable(global_model, key):
                 V_mat_max = [torch.zeros_like(global_model[key], dtype=torch.long, device=self.platform) for _ in range(self.no_r_mat)]
                 V_mat_min = [torch.zeros_like(global_model[key], dtype=torch.long, device=self.platform) for _ in range(self.no_r_mat)]
                 
@@ -204,8 +203,7 @@ class FedPoll(FederatedLearningClass):
 
         statistical_vars = {}
         for key in client_trained_model.keys():
-
-            if client_trained_model[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key):
+            if Common.is_trainable(client_trained_model, key):
                 shift_cnt = 1
                 for r_tensor_i in range(len(self.client_side_r_tensors)):
                     output_model[key] = output_model[key] + torch.where(self.client_side_r_tensors[r_tensor_i][key] > client_trained_model[key], torch.tensor(shift_cnt, dtype=torch.int32, device=self.platform) , torch.tensor(0, dtype=torch.int32, device=self.platform))
