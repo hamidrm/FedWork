@@ -7,6 +7,7 @@ import random
 from utils.logger import *
 from utils.profiler import *
 import copy
+from utils.common import Common
 
 class SCAFFOLD(FederatedLearningClass):
 
@@ -56,16 +57,16 @@ class SCAFFOLD(FederatedLearningClass):
             model = client_model["client_model"]
             client_control_variate = client_model["updated_client_control_variate"]
             for key in global_model.keys():
-                if global_model[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key):
+                if Common.is_trainable(model, key):
                     delta_global_model[key] += model[key] / self.num_of_nodes_contributor
                     delta_c[key] += client_control_variate[key] / self.num_of_nodes_contributor
 
         for key in global_model.keys():
-            if global_model[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key):
+            if Common.is_trainable(global_model, key):
                 global_model[key] = global_model[key] + delta_global_model[key]
                 self.global_control_variate[key] = self.global_control_variate[key] + (float(self.num_of_nodes_contributor) / float(self.N)) * delta_c[key]
             else:
-                torch.stack([clients_models[i]["sta"][key].float() for i in range(len(clients_models))],0).mean(0)
+                global_model[key] = clients_models[0]["sta"][key]
         self.round_num += 1
 
 
@@ -107,6 +108,7 @@ class SCAFFOLD(FederatedLearningClass):
 
         packed_data["client_model"] = {}
         packed_data["sta"] = {}
+        packed_data["updated_client_control_variate"] = {}
 
         for key in global_model.keys():
             packed_data["client_model"][key] = raw_model[key] - global_model[key]
@@ -116,7 +118,7 @@ class SCAFFOLD(FederatedLearningClass):
         #Option II
         with torch.no_grad():
             for key in self.client_control_variate.keys():
-                if global_model[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key):
+                if Common.is_trainable(global_model, key):
                     param, global_param = raw_model[key], global_model[key]
                     updated_client_control_variate[key] = (global_param - param) / (self.K * self.lr) - self.global_control_variate[key]
                     self.client_control_variate[key] = self.client_control_variate[key] + updated_client_control_variate[key]

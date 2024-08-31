@@ -31,7 +31,7 @@ class FedPoll(FederatedLearningClass):
         logger.log_normal(f"===================================================")
 
     def get_name(self):
-        return "FedPoll-MM"
+        return "FedPoll"
     
     def init_method(self):
         pass
@@ -75,7 +75,6 @@ class FedPoll(FederatedLearningClass):
 
                 for model in clients_models:
                     models_bins=model["bin"]
-                    client_bins = []
                     shift_cnt = 0
 
                     for R_mat_i in range(self.no_r_mat):
@@ -108,7 +107,7 @@ class FedPoll(FederatedLearningClass):
 
                 self.current_radius[key] = diff.item() + self.epsilon
             else:
-                global_model[key] = torch.stack([clients_models[i]["sta"][key].float() for i in range(len(clients_models))],0).mean(0) #batch trackes are received as long tensors and all model are same
+                global_model[key] = clients_models[0]["sta"][key]
 
             
 

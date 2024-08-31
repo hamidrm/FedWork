@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from core.FederatedLearningClass import *
 import random
+from utils.common import Common
 from utils.logger import *
 from utils.profiler import *
 
@@ -25,11 +26,13 @@ class FedProx(FederatedLearningClass):
         pass
 
     def aggregate(self, clients_models, global_model):
-        fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
+
         for key in global_model.keys():
-            torch_list_weights = torch.stack([clients_models[i][key].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
-            global_model[key] = torch_list_weights.sum(0)
-        
+            if Common.is_trainable(global_model, key):
+                torch_list_weights = torch.stack([(clients_models[i][key].float() + global_model[key]) for i in range(len(clients_models))], 0)
+                global_model[key] = torch_list_weights.mean(0)
+            else:
+                global_model[key] = clients_models[0][key]
         self.round_num += 1
 
 

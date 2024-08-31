@@ -92,7 +92,7 @@ class FedPollN(FederatedLearningClass):
 
                 self.current_radius[key] = diff.item() + self.epsilon
             else:
-                global_model[key] = torch.stack([clients_models[i][key].float() for i in range(len(clients_models))],0).mean(0) #batch trackes are received as long tensors and all model are same
+                global_model[key] = clients_models[0][key]
 
 
 

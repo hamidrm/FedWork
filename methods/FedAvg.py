@@ -75,21 +75,29 @@ class FedAvg(FederatedLearningClass):
             return False
         
     def calculate_sigma_l2_norm(self, local_models, global_model):
+        # Number of local models
         N = len(local_models)
         
+        # Initialize a dictionary to store the sum of squared deviations for each parameter
         sum_squared_deviations = {}
         
+        # Iterate over each parameter in the global model
         for param_name, global_param in global_model.items():
+            # Initialize sum of squared deviations for this parameter
             sum_squared_deviations[param_name] = torch.zeros_like(global_param)
-
+            
+            # Accumulate squared deviations from the global parameter for this parameter across all local models
             for local_model in local_models:
                 local_param = local_model[param_name]
                 sum_squared_deviations[param_name] += (local_param - global_param) ** 2
             
+            # Calculate the mean of squared deviations for this parameter
             sum_squared_deviations[param_name] /= N
         
+        # Calculate the standard deviation for each parameter
         std_devs = {param_name: torch.sqrt(squared_deviation) for param_name, squared_deviation in sum_squared_deviations.items()}
         
+        # Calculate the L2 norm of the standard deviations
         l2_norm = torch.sqrt(sum(torch.sum(std_dev ** 2) for std_dev in std_devs.values()))
         
         return l2_norm.item()

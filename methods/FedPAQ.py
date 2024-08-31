@@ -4,6 +4,7 @@ from core.FederatedLearningClass import *
 import random
 from utils.logger import *
 from utils.quantization import QSGDQuantizer
+from utils.common import Common
 
 class FedPAQ(FederatedLearningClass):
     def __init__(self, args=()):
@@ -22,10 +23,13 @@ class FedPAQ(FederatedLearningClass):
         pass
 
     def aggregate(self, clients_models, global_model):
-        #fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
+
         for key in global_model.keys():
-            torch_list_weights = torch.stack([(clients_models[i][key].float() + global_model[key]) for i in range(len(clients_models))], 0)
-            global_model[key] = torch_list_weights.mean(0)
+            if Common.is_trainable(global_model, key):
+                torch_list_weights = torch.stack([(clients_models[i][key].float() + global_model[key]) for i in range(len(clients_models))], 0)
+                global_model[key] = torch_list_weights.mean(0)
+            else:
+                global_model[key] = clients_models[0][key]
 
     def start_training(self):
         logger.log_normal(f"===================================================")
