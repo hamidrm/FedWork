@@ -21,7 +21,6 @@ class Client:
         else:
             self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum, weight_decay=hyperparameters.weight_decay)
         self.criterion = loss().to(executer)
-        self.criterion = loss().to(executer)
         self.executer = executer
         self.dataset = train_ds
         self.name = name
