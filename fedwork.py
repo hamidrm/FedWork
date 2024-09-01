@@ -355,20 +355,23 @@ class fedwork:
                 attr_platform = "@platform"
                 localclients_num_key = "#text"
 
+                momentum = None
+                weight_decay = None
+
                 if not attr_learning_rate in localclients_cfg.keys():
                     util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute learning_rate is not assigned!")
                     break
 
-                if not attr_momentum in localclients_cfg.keys():
-                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute momentum is not assigned!")
+                if attr_momentum in localclients_cfg.keys():
+                    momentum = float(localclients_cfg[attr_momentum])
                     break
 
                 if not attr_optimizer in localclients_cfg.keys():
                     util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute optimizer is not assigned!")
                     break
 
-                if not attr_weight_decay in localclients_cfg.keys():
-                    util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute weight_decay is not assigned!")
+                if attr_weight_decay in localclients_cfg.keys():
+                    weight_decay = float(localclients_cfg[attr_weight_decay])
                     break
 
                 if not localclients_num_key in localclients_cfg.keys():
@@ -376,8 +379,7 @@ class fedwork:
                     break
 
                 learning_rate = float(localclients_cfg[attr_learning_rate])
-                momentum = float(localclients_cfg[attr_momentum])
-                weight_decay = float(localclients_cfg[attr_weight_decay])
+
                 localclients_num = int(localclients_cfg[localclients_num_key])
                 client_platform = localclients_cfg[attr_platform]
                 optimizer = self.get_optimizer_class(localclients_cfg[attr_optimizer])
@@ -628,3 +630,4 @@ if __name__ == "__main__":
 
     fedwork_ins = fedwork()
     fedwork_ins.start(sys.argv[1])
+

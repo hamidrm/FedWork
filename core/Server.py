@@ -44,7 +44,7 @@ class Server:
             training_conf["gamma"] = gamma[client_name]
             self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
 
-    def start_round(self, epochs, lr_mileston: list, gamma = 0.01):
+    def start_round(self, epochs, lr_mileston: list = [], gamma = 0.00):
         clients = self.server_comm.get_clients()
         clients_subset = self.fl_method.select_clients_to_train(clients)
         training_conf = {}

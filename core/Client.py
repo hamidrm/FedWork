@@ -14,7 +14,13 @@ class Client:
         
         self.client_model = model
         self.global_model = copy.deepcopy(model)
-        self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum, weight_decay=hyperparameters.weight_decay)
+        if hyperparameters.momentum is None:
+            self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate)
+        elif hyperparameters.weight_decay is None:
+            self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum)
+        else:
+            self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum, weight_decay=hyperparameters.weight_decay)
+        self.criterion = loss().to(executer)
         self.criterion = loss().to(executer)
         self.executer = executer
         self.dataset = train_ds
@@ -98,7 +104,7 @@ class Client:
 
     def StartTraining(self, epochs_num, lr_scheduler_milestone_list : list = None, gamma : float = 0.1):
         self.is_training_lock.acquire()
-        if lr_scheduler_milestone_list is not None:
+        if (lr_scheduler_milestone_list is not None) and (len(lr_scheduler_milestone_list) != 0):
             scheduler = torch.optim.lr_scheduler.MultiStepLR(self.client_optimizer,
                                                      milestones=lr_scheduler_milestone_list,
                                                      gamma=gamma,
@@ -171,3 +177,4 @@ class Client:
             self.client_comm.send_data_to_server(packed_data)
         self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_TRAINNING_DONE, 0)
         self.is_training_lock.release()
+
