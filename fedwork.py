@@ -364,7 +364,6 @@ class fedwork:
 
                 if attr_momentum in localclients_cfg.keys():
                     momentum = float(localclients_cfg[attr_momentum])
-                    break
 
                 if not attr_optimizer in localclients_cfg.keys():
                     util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute optimizer is not assigned!")
@@ -372,7 +371,6 @@ class fedwork:
 
                 if attr_weight_decay in localclients_cfg.keys():
                     weight_decay = float(localclients_cfg[attr_weight_decay])
-                    break
 
                 if not localclients_num_key in localclients_cfg.keys():
                     util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', value is not assigned!")
