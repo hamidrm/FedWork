@@ -1,13 +1,11 @@
 #FedAvg
 
 import torch
-import torch.nn as nn
 from core.FederatedLearningClass import *
 import random
 from utils.logger import *
 import copy
-import numpy as np
-import math
+from utils.common import Common
 
 
 class FedPollN(FederatedLearningClass):
@@ -20,15 +18,15 @@ class FedPollN(FederatedLearningClass):
         self.client_side_r_tensors = []
         self.num_of_nodes_contributor = 0
         self.first_aggregation = True
-        bits = int(common.Common.get_param_in_args(extra_args, "bits", 8))
+        bits = int(Common.get_param_in_args(extra_args, "bits", 8))
         self.no_r_mat = 2 ** bits
-        self.contributors_percent = int(common.Common.get_param_in_args(extra_args, "contributors_percent", 80))
+        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 80))
         self.current_seeds = [0] * self.no_r_mat
         self.clients_first_aggregation = True
         self.current_radius = {}
         self.loss0 = -1
         self.current_loss = 0
-        self.epsilon = float(common.Common.get_param_in_args(extra_args, "epsilon", 1e-1))
+        self.epsilon = float(Common.get_param_in_args(extra_args, "epsilon", 1e-1))
 
         logger.log_normal(f"===================================================")
         logger.log_normal(f"bits: {bits}, contributors_percent: {self.contributors_percent}, epsilon: {self.epsilon}")

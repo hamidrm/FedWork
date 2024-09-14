@@ -1,7 +1,6 @@
 import torch
-import torch.nn as nn
 from core.FederatedLearningClass import *
-
+from utils.common import Common
 from utils.quantization import *
 import random
 from utils.logger import *
@@ -13,9 +12,9 @@ class FedAvgQ(FederatedLearningClass):
     def __init__(self, args=()):
         super().__init__()
         self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
-        self.no_levels = int(common.Common.get_param_in_args(extra_args, "levels", 8))
-        self.q_method = str(common.Common.get_param_in_args(extra_args, "quantization", "None"))
-        self.c_percent = int(common.Common.get_param_in_args(extra_args, "contributors_percent", "0"))
+        self.no_levels = int(Common.get_param_in_args(extra_args, "levels", 8))
+        self.q_method = str(Common.get_param_in_args(extra_args, "quantization", "None"))
+        self.c_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", "0"))
         self.quantization = QuantizationClass()
 
         if self.q_method == "None":

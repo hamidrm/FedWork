@@ -1,7 +1,6 @@
 #FedProx
 
 import torch
-import torch.nn as nn
 from core.FederatedLearningClass import *
 import random
 from utils.common import Common
@@ -13,8 +12,8 @@ class FedProx(FederatedLearningClass):
     def __init__(self, args = ()):
         super().__init__()
         self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
-        self.contributors_percent = int(common.Common.get_param_in_args(extra_args, "contributors_percent", 100))
-        self.mu = float(common.Common.get_param_in_args(extra_args, "mu", 0.0))
+        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 100))
+        self.mu = float(Common.get_param_in_args(extra_args, "mu", 0.0))
         self.num_of_nodes_contributor = 0
         self.round_num = 0
 

@@ -1,10 +1,9 @@
 import torch
-import torch.nn as nn
 from core.FederatedLearningClass import *
 import random
 from utils.logger import *
 import copy
-import math
+from utils.common import Common
 
 class FedPoll(FederatedLearningClass):
 
@@ -15,9 +14,9 @@ class FedPoll(FederatedLearningClass):
         self.client_side_r_tensors = []
         
         self.first_aggregation = True
-        self.no_r_mat = int(common.Common.get_param_in_args(extra_args, "no_r", 8))
-        self.contributors_percent = int(common.Common.get_param_in_args(extra_args, "contributors_percent", 80))
-        self.epsilon = float(common.Common.get_param_in_args(extra_args, "epsilon", 1e-1))
+        self.no_r_mat = int(Common.get_param_in_args(extra_args, "no_r", 8))
+        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 80))
+        self.epsilon = float(Common.get_param_in_args(extra_args, "epsilon", 1e-1))
         self.num_of_nodes_contributor = 0
         self.current_seeds = [0] * self.no_r_mat
         self.clients_first_aggregation = True
