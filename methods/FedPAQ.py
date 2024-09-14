@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from core.FederatedLearningClass import *
 import random
 from utils.logger import *
@@ -9,8 +10,8 @@ class FedPAQ(FederatedLearningClass):
     def __init__(self, args=()):
         super().__init__()
         self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
-        num_levels = int(Common.get_param_in_args(extra_args, "num_levels", 16))
-        r_percent = int(Common.get_param_in_args(extra_args, "r_percent", 80))
+        num_levels = int(common.Common.get_param_in_args(extra_args, "num_levels", 16))
+        r_percent = int(common.Common.get_param_in_args(extra_args, "r_percent", 80))
         self.quantizer = QSGDQuantizer(num_levels)
         self.num_of_nodes_contributor = 0
         self.contributors_percent = (float(r_percent) / 100.0)
@@ -54,7 +55,7 @@ class FedPAQ(FederatedLearningClass):
         packet_to_send = {}
         scale = {}
         for key in raw_model.keys():
-            if not Common.is_trainable(raw_model, key):
+            if raw_model[key].dtype == torch.long or ('running_var' in key) or ('running_mean' in key):
                 quantized_tensor, scale[key] = raw_model[key], 0
                 quantized_model[key] = quantized_tensor.to(torch.long)
             else:

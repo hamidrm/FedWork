@@ -23,10 +23,10 @@ class FedAvg(FederatedLearningClass):
         pass
 
     def aggregate(self, clients_models, global_model):
-        #fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
+        fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
         for key in global_model.keys():
-            torch_list_weights = torch.stack([clients_models[i][key].float() for i in range(len(clients_models))],0)
-            global_model[key] = torch_list_weights.mean(0)
+            torch_list_weights = torch.stack([clients_models[i][key].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
+            global_model[key] = torch_list_weights.sum(0)
         
         StdD = self.calculate_sigma_l2_norm(clients_models, global_model)
         profiler().save_variable("StdD", StdD, self.round_num)

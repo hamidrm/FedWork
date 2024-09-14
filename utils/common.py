@@ -1,5 +1,6 @@
 import pickle
 import time
+import torch
 
 class ClientData:
 
@@ -58,4 +59,7 @@ class Common:
     @staticmethod
     def time_ns():
         return time.time() * 1000000000  
-        
+    
+    @staticmethod
+    def is_trainable(model_dict, key):
+        return model_dict[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key)

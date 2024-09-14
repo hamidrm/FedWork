@@ -20,6 +20,7 @@ class Client:
             self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum)
         else:
             self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum, weight_decay=hyperparameters.weight_decay)
+
         self.criterion = loss().to(executer)
         self.executer = executer
         self.dataset = train_ds
@@ -64,6 +65,8 @@ class Client:
             logger.log_info(f'[{self.name}]: is connected.')
         elif evt == COMM_EVT_DISCONNECTED:
             logger.log_info(f'[{self.name}]: is disconnected.')
+        elif evt == COMM_EVT_TURNOFF:
+            logger.log_info(f'[{self.name}]: TurnOff command received.')
         else:
             logger.log_warning(f"Undefined event received (evt={evt})!")
 
@@ -176,4 +179,3 @@ class Client:
             self.client_comm.send_data_to_server(packed_data)
         self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_TRAINNING_DONE, 0)
         self.is_training_lock.release()
-

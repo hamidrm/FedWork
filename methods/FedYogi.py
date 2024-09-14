@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from core.FederatedLearningClass import *
 import random
 from utils.logger import *
@@ -9,11 +10,11 @@ class FedYogi(FederatedLearningClass):
     def __init__(self, args=()):
         super().__init__()
         self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
-        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 100))
-        self.beta1 = float(Common.get_param_in_args(extra_args, "beta1", 0.9))
-        self.beta2 = float(Common.get_param_in_args(extra_args, "beta2", 0.99))
-        self.epsilon = float(Common.get_param_in_args(extra_args, "epsilon", 1e-3))
-        self.eta = float(Common.get_param_in_args(extra_args, "eta", 1e-2))
+        self.contributors_percent = int(common.Common.get_param_in_args(extra_args, "contributors_percent", 100))
+        self.beta1 = float(common.Common.get_param_in_args(extra_args, "beta1", 0.9))
+        self.beta2 = float(common.Common.get_param_in_args(extra_args, "beta2", 0.99))
+        self.epsilon = float(common.Common.get_param_in_args(extra_args, "epsilon", 1e-3))
+        self.eta = float(common.Common.get_param_in_args(extra_args, "eta", 1e-2))
         self.m = None  # First moment
         self.v = None  # Second moment
         self.num_of_nodes_contributor = 0

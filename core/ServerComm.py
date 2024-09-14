@@ -16,13 +16,14 @@ class ServerComm(Network):
         super().__init__()
         self.host = host
         self.port = port
+        self.evt_receiver_status = threading.Event()
         self.server_ready = threading.Lock()
         self.server_ready.acquire()
         server_thread = threading.Thread(target=self.__server_thread)
         self.clients = {}
         self.alive = True
         self.server_evt_fn = server_evt_fn
-
+        self.server_socket = None
         server_thread.start()
         self.server_ready.acquire()  #Block the server until server network gets ready.
 
@@ -30,16 +31,48 @@ class ServerComm(Network):
         mailbox_thread.start()
         logger.log_debug(f"Initialization done.")
 
+
+    def release_all(self):
+        
+        while not self.recv_queue.empty:
+            time.sleep(0.1)
+        while not self.send_queue.empty:
+            time.sleep(0.1)
+
+        self.sending_mutex.acquire()
+
+        self.send_thread_stop.set()
+
+        self.evt_receiver_status.set()
+        self.send_queue.put(None)
+        self.recv_queue.put(None)
+        self.sending_mutex.release()
+        for stop_evt in self.recv_thread_stop:
+            stop_evt.set()
+
+        self.sending_thread.join()
+
+        for rt, _ in self.receiving_threads:
+            rt.join()
+        
+        
+
     def __server_thread(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((self.host, self.port))
             self.server_ready.release()
             s.listen()
+            self.server_socket = s
             while self.alive:
-                conn, addr = s.accept()
-                self.__new_conection(conn, addr)
+                try:
+                    conn, addr = s.accept()
+                    self.__new_connection(conn, addr)
+                except OSError:
+                    continue
 
-    def __new_conection(self, connection, address):
+
+    def __new_connection(self, connection, address):
         
         try:
             msg_header_bin = connection.recv(COMM_HEADER_SIZE) # Read the header
@@ -82,9 +115,10 @@ class ServerComm(Network):
 
     def __client_receiver(self):
         
-        client_is_alive = True
-        while(client_is_alive):
+        while not self.evt_receiver_status.is_set():
             packet_type, packet_param1, _, _, data, rcv_id = self.receive_data()
+            if rcv_id is None:
+                continue
             client_data = self.clients[rcv_id]
             if packet_type == COMM_HEADER_TYPES_CMD:
                 logger.log_debug(f"Command received from '{client_data.name}' (packet_param1={packet_param1}).")
@@ -92,7 +126,7 @@ class ServerComm(Network):
                     pass
                 elif packet_param1 == COMM_HEADER_CMD_DROPEME_REQ:
                     self.server_evt_fn(COMM_EVT_DROPEME_REQ, client_data, None)
-                    client_is_alive = False
+                    self.evt_receiver_status.set()
                 elif packet_param1 == COMM_HEADER_CMD_REQUEST_PACKET_NUM:
                     pass
                 else:
@@ -107,12 +141,11 @@ class ServerComm(Network):
                     self.server_evt_fn(COMM_EVT_EPOCH_DONE_NOTIFY, client_data, Common.data_convert_from_bytes(data))
                 elif packet_param1 == COMM_HEADER_NOTI_TRAINNING_DONE:
                     self.server_evt_fn(COMM_EVT_TRAINING_DONE, client_data, None)
+                elif packet_param1 == COMM_HEADER_NOTI_DROPE_ME_OFF:
+                    self.server_evt_fn(COMM_EVT_DROPEME_REQ, client_data, None)
                 else:
                      logger.log_error(f"Unknown notification received! (packet_param1={packet_param1})")
-        client_data.connection.close()
-        logger.log_debug(f"Connection closed...")
-        del self.clients[client_data.name]
-        self.server_evt_fn(COMM_EVT_DISCONNECTED, client_data, None)
+
 
     def get_clients(self):
         return self.clients
@@ -123,6 +156,8 @@ class ServerComm(Network):
         self.send_data(self.clients[client_name].connection, client_name, COMM_HEADER_TYPES_DATA, 0, 0, data_bytes_array)
 
     def send_command(self, client_name, command, param, data = None):
+        if data == None:
+            data = []
         logger.log_debug(f"Sending command to '{client_name}'(command={command}, size of data = {len(data)})")
         data_bytes_array = b''
         if data is not None:

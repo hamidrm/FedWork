@@ -14,6 +14,8 @@ import dataset.dataset as DS
 from core.Server import *
 import torch.optim as optim
 from utils.plotter import Plotter
+from methods.FedPipe import FedPipe
+
 
 class fedwork:
     def __init__(self):
@@ -31,7 +33,16 @@ class fedwork:
             var_list = [var_list]
         try:
             desired_item_value = next((var for var in var_list if var.get("@name") == name), None)["#text"]
-            return type(desired_item_value)
+            if type == bool:
+                # Convert value to lowercase and check common string representations of true and false
+                if desired_item_value.lower() in ['true', '1', 'yes']:
+                    return True
+                elif desired_item_value.lower() in ['false', '0', 'no']:
+                    return False
+                else:
+                    raise ValueError(f"Cannot convert '{desired_item_value}' to bool.")
+            else:
+                return type(desired_item_value)
         except TypeError as e:
             return def_val
 
@@ -430,7 +441,6 @@ class fedwork:
 
 
 
-
         
         # Step 3.
         # Generate repoorts
@@ -628,4 +638,3 @@ if __name__ == "__main__":
 
     fedwork_ins = fedwork()
     fedwork_ins.start(sys.argv[1])
-

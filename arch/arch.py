@@ -12,6 +12,7 @@ class BaseArch(Enum):
     ResNet18 = "ResNet18"
     ResNet34 = "ResNet34"
     VGG16 = "VGG16"
+    VGG7 = "VGG7"
 
 class ActivationFunction(Enum):
     ReLUFunction = "relu"

@@ -10,6 +10,7 @@ from utils.logger import *
 class Network:
     def __init__(self):
 
+        self.sending_mutex = threading.Lock()
 
         self.send_thread_stop = threading.Event()
         self.recv_thread_stop = []
@@ -31,29 +32,13 @@ class Network:
         self.no_sent_total = 0
         self.no_rcvd_total = 0
 
-    def release_all(self):
-        self.send_thread_stop.set()
-        for stop_evt in self.recv_thread_stop:
-            stop_evt.set()
-
-        self.sending_thread.join()
-
-        for rt in self.receiving_threads:
-            rt.join()
-        
-        # Flush Queues
-        while not self.recv_queue.empty:
-            self.recv_queue.get_nowait()
-        while not self.send_queue.empty:
-            self.send_queue.get_nowait()
-
     def create_new_receiver(self, recv_id, connection):
         
         self.recv_thread_stop.append(threading.Event())
         thread = threading.Thread(target=self.__receive_data, args=(recv_id, connection, self.recv_thread_stop[self.thread_num], ))
         thread.start()
         self.receiving_threads.append(None)
-        self.receiving_threads[self.thread_num] = thread
+        self.receiving_threads[self.thread_num] = (thread, connection)
 
         
         self.thread_num += 1
@@ -62,6 +47,8 @@ class Network:
     def receive_data(self):
        # try:
         item = self.recv_queue.get(block=True)
+        if item is None:
+            return None,None,None,None,None,None
         return (item["packet_type"], item["packet_param1"], item["packet_param2"], item["expected_length"], item["total_data"], item["rcv_id"])
         #finally:
         #    self.send_queue.task_done()
@@ -87,9 +74,14 @@ class Network:
         while not send_thread_stop.is_set():
             try:
                 item = self.send_queue.get()
-                self.__send_data(item["connection"], item["receiver_id"], item["type"], item["param1"], item["param2"], item["data"])
+                if item is not None:
+                    self.sending_mutex.acquire()
+                    self.__send_data(item["connection"], item["receiver_id"], item["type"], item["param1"], item["param2"], item["data"])
+                    self.sending_mutex.release()
             finally:
                 self.send_queue.task_done()
+
+        logger.log_warning("Sending thread terminated...")
 
     def resend_chunk_data(self, connection, receiver_id, chunk_seq_num):
         payload_offset = COMM_HCHUNK_TOTAL_DATA_SIZE+chunk_seq_num*COMM_TCHUNK_TOTAL_DATA_SIZE
@@ -164,10 +156,12 @@ class Network:
         received_data = b''
         while len(received_data) < expected_length:
             remaining_length = expected_length - len(received_data)
-            data_chunk = sock.recv(remaining_length)
-            if not data_chunk:
-                logger.log_error("Connection terminated unexpectedly!")
-                break
+            try:
+                data_chunk = sock.recv(remaining_length)
+                if not data_chunk:
+                    break
+            except OSError as e:
+                return received_data
             self.no_rcvd_total += len(data_chunk)
             received_data += data_chunk
         return received_data
@@ -181,7 +175,8 @@ class Network:
 
         while not recv_thread_stop.is_set():
             chunk = self.recvall(connection, COMM_CHUNK_TOTAL_SIZE)
-
+            if not chunk:
+                continue
             header_data   = struct.unpack(COMM_HEADER_FORMAT, chunk[:COMM_HEADER_SIZE])
             header_dict = dict(zip(COMM_HEADER_DICT.keys(), header_data)) 
 
@@ -230,3 +225,4 @@ class Network:
                         self.__add_to_recv_packet(packet_type, packet_param1, packet_param2, expected_length, bytes(total_data), recv_id)
                     else:
                         logger.log_error(f"We encountered such a critical and vital problem!'.")
+        logger.log_warning(f"Receive Thread Terminated.")

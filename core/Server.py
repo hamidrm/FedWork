@@ -104,6 +104,8 @@ class Server:
             logger.log_info(f'{client.name} is connected.')
         elif evt == COMM_EVT_DISCONNECTED:
             logger.log_info(f'{client.name} is disconnected.')
+        elif evt == COMM_EVT_DROPEME_REQ:
+            logger.log_info(f'{client.name} asked to drope off.')
         else:
             logger.log_warning(f"Undefined event received (evt={evt})!")
 
@@ -147,7 +149,22 @@ class Server:
 
     def release_all(self):
         for client in self.server_comm.clients:
-            self.server_comm.send_command(client["name"], COMM_HEADER_CMD_TURNOFF, 0)
+            self.server_comm.send_command(client, COMM_HEADER_CMD_TURNOFF, 0)
+
+        while not self.server_comm.send_queue.empty():
+            time.sleep(0.1)
+        self.server_comm.release_all()
+        #time.sleep(5)
+        self.server_comm.alive = False
+        if self.server_comm.server_socket:
+            try:
+                self.server_comm.server_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                logger.log_error(f"Network error in new connection arised!")
+                pass
+            finally:
+                self.server_comm.server_socket.close()
+
 
     def save_var(self, var_name, var_value):
         profiler.save_variable(str(var_name), var_value, self.round_number)

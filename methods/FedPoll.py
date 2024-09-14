@@ -1,11 +1,10 @@
-#FedAvg
-
 import torch
+import torch.nn as nn
 from core.FederatedLearningClass import *
 import random
 from utils.logger import *
 import copy
-from utils.common import Common
+import math
 
 class FedPoll(FederatedLearningClass):
 
@@ -16,9 +15,9 @@ class FedPoll(FederatedLearningClass):
         self.client_side_r_tensors = []
         
         self.first_aggregation = True
-        self.no_r_mat = int(Common.get_param_in_args(extra_args, "no_r", 8))
-        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 80))
-        self.epsilon = float(Common.get_param_in_args(extra_args, "epsilon", 1e-1))
+        self.no_r_mat = int(common.Common.get_param_in_args(extra_args, "no_r", 8))
+        self.contributors_percent = int(common.Common.get_param_in_args(extra_args, "contributors_percent", 80))
+        self.epsilon = float(common.Common.get_param_in_args(extra_args, "epsilon", 1e-1))
         self.num_of_nodes_contributor = 0
         self.current_seeds = [0] * self.no_r_mat
         self.clients_first_aggregation = True
@@ -67,18 +66,19 @@ class FedPoll(FederatedLearningClass):
             
         for key in global_model.keys():
             
-            if Common.is_trainable(global_model, key):
+            if global_model[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key):
                 V_mat_max = [torch.zeros_like(global_model[key], dtype=torch.long, device=self.platform) for _ in range(self.no_r_mat)]
                 V_mat_min = [torch.zeros_like(global_model[key], dtype=torch.long, device=self.platform) for _ in range(self.no_r_mat)]
                 
 
                 for model in clients_models:
                     models_bins=model["bin"]
+                    client_bins = []
                     shift_cnt = 0
 
                     for R_mat_i in range(self.no_r_mat):
                         client_bins_max = (models_bins[key] >> shift_cnt) & 1
-                        client_bins_min = ((4294967295-models_bins[key]) >> shift_cnt) & 1
+                        client_bins_min = ((255-models_bins[key]) >> shift_cnt) & 1
                         
                         shift_cnt = shift_cnt + 1
                         V_mat_max[R_mat_i] += client_bins_max
@@ -86,10 +86,10 @@ class FedPoll(FederatedLearningClass):
                 V_mat_max_stacked = torch.stack(V_mat_max, dim = 0)
                 V_mat_min_stacked = torch.stack(V_mat_min, dim = 0)
 
-                V_mat_max_stacked[V_mat_max_stacked==0] = 999999999 #Ignore the absolut Maximums
+                V_mat_max_stacked[V_mat_max_stacked==0] = 99999 #Ignore the absolut Maximums
                 _, max_index = torch.min(V_mat_max_stacked,dim=0)
 
-                V_mat_min_stacked[V_mat_min_stacked==0] = 999999999 #Ignore the absolut Minimums
+                V_mat_min_stacked[V_mat_min_stacked==0] = 9999999 #Ignore the absolut Minimums
                 _, min_index = torch.min(V_mat_min_stacked,dim=0)
 
                 flattened_r_tensors = torch.cat([tensor[key].view(1, -1) for tensor in r_tensors], dim=0)
@@ -104,9 +104,14 @@ class FedPoll(FederatedLearningClass):
                 diff = torch.mean(new_global_model - global_model[key])
                 global_model[key] = new_global_model
 
+                #mean = torch.linalg.norm.item()
+                # max = diff
+                # while max.dim() > 0:
+                #     max, _ = torch.max(max, dim=0)
+
                 self.current_radius[key] = diff.item() + self.epsilon
             else:
-                global_model[key] = clients_models[0]["sta"][key]
+                global_model[key] = torch.stack([clients_models[i]["sta"][key].float() for i in range(len(clients_models))],0).mean(0) #batch trackes are received as long tensors and all model are same
 
             
 
@@ -199,14 +204,17 @@ class FedPoll(FederatedLearningClass):
             self.clients_first_aggregation = False
             return client_trained_model
 
-        output_model = {param_key: torch.zeros_like(param, dtype=torch.int32, device=self.platform) for param_key, param in client_trained_model.items()}
+        output_model = {param_key: torch.zeros_like(param, dtype=torch.uint8, device=self.platform) for param_key, param in client_trained_model.items()}
 
         statistical_vars = {}
         for key in client_trained_model.keys():
-            if Common.is_trainable(client_trained_model, key):
+
+            if client_trained_model[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key):
                 shift_cnt = 1
                 for r_tensor_i in range(len(self.client_side_r_tensors)):
-                    output_model[key] = output_model[key] + torch.where(self.client_side_r_tensors[r_tensor_i][key] > client_trained_model[key], torch.tensor(shift_cnt, dtype=torch.int32, device=self.platform) , torch.tensor(0, dtype=torch.int32, device=self.platform))
+                    if output_model[key].device != self.client_side_r_tensors[r_tensor_i][key].device or output_model[key].device != client_trained_model[key].device:
+                        print(f"output_model.device={output_model[key].device}, self.client_side_r_tensors[r_tensor_i][key]={self.client_side_r_tensors[r_tensor_i][key].device},client_trained_model[key]={client_trained_model[key].device}")
+                    output_model[key] = output_model[key] + torch.where(self.client_side_r_tensors[r_tensor_i][key] > client_trained_model[key], torch.tensor(shift_cnt, dtype=torch.uint8, device=self.platform) , torch.tensor(0, dtype=torch.uint8, device=self.platform))
                     shift_cnt = shift_cnt * 2
             else:
                 statistical_vars[key] = client_trained_model[key]

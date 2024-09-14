@@ -140,9 +140,9 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         train_datasets.append(DataLoader(dataset_client, batch_size=train_batch_size,
                                    shuffle=True, num_workers=num_workers))
         
-
+        # Get the targets/labels for the current client
         client_labels = [train_dataset[i][1] for i in train_group_index_list]
-
+        # Count the occurrences of each class
         class_counts = Counter(client_labels)
         client_distributions.append(class_counts)
     
@@ -160,6 +160,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         normalized_matrix = [[val / max_val for val in row] for row in graph_map]
         
 
+        # Calculate figure size based on the number of x labels
         figure_width = max(len(train_datasets) / 2, 8)  # Adjust this factor as needed
         figure_height = max(len(unique_classes) / 2, 6)  # Adjust this factor as needed
 
@@ -179,7 +180,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
             dir_path = path
         plt.yticks([i for i in range(len(unique_classes))], train_dataset.classes)
         plt.xticks([i for i in range(train_ds_num)], [(i+1) for i in range(train_ds_num)])
-
+        # Check if the directory exists, if not, create it
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
 
@@ -189,7 +190,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         plt.savefig(full_path, format="pdf", bbox_inches="tight")
 
         client_num=0
-
+        # Convert to arrays for easy plotting
         all_classes = sorted({cls for dist in client_distributions for cls in dist})
         distribution_matrix = np.zeros((len(client_distributions), len(all_classes)))
 
@@ -198,15 +199,26 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
                 class_index = all_classes.index(cls)
                 distribution_matrix[i, class_index] = count
 
+        # Normalize distributions to show proportions
+        #distribution_matrix /= distribution_matrix.sum(axis=1, keepdims=True)
+
+        # Plotting the stacked bar plot
         fig, ax = plt.subplots(figsize=(12, 6))
 
+        # Plot each class as a separate section in the bar
         bottom = np.zeros(len(client_distributions))
-        colors = plt.cm.tab20(np.linspace(0, 1, len(all_classes)))  # Use a colormap for colors
+        colors = ["#35478c","#495696","#5c65a1","#6e75ab","#8085b5","#9295c0","#a4a6ca","#b6b7d5","#c8c9df","#dadbea"]#plt.cm.tab20(np.linspace(0, 1, len(all_classes)))  # Use a colormap for colors
 
         for class_index, cls in enumerate(all_classes):
             class_distribution = distribution_matrix[:, class_index]
             ax.bar(range(len(client_distributions)), class_distribution, bottom=bottom, color=colors[class_index], label=f'Class {cls}')
             bottom += class_distribution
+        
+        # Customize the plot
+        #ax.set_xlabel('Client Index')
+        #ax.set_ylabel('Proportion of Classes')
+        #ax.set_title('Non-IID Data Distribution Across Clients')
+        #ax.legend(title='Class')
 
         plt.tick_params(axis='x', labelsize=20)
         plt.tick_params(axis='y', labelsize=20)

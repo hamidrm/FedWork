@@ -1,6 +1,7 @@
 import torch
+import torch.nn as nn
 from core.FederatedLearningClass import *
-from utils.common import Common
+
 from utils.quantization import *
 import random
 from utils.logger import *
@@ -12,9 +13,9 @@ class FedAvgQ(FederatedLearningClass):
     def __init__(self, args=()):
         super().__init__()
         self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
-        self.no_levels = int(Common.get_param_in_args(extra_args, "levels", 8))
-        self.q_method = str(Common.get_param_in_args(extra_args, "quantization", "None"))
-        self.c_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", "0"))
+        self.no_levels = int(common.Common.get_param_in_args(extra_args, "levels", 8))
+        self.q_method = str(common.Common.get_param_in_args(extra_args, "quantization", "None"))
+        self.c_percent = int(common.Common.get_param_in_args(extra_args, "contributors_percent", "0"))
         self.quantization = QuantizationClass()
 
         if self.q_method == "None":
@@ -35,10 +36,10 @@ class FedAvgQ(FederatedLearningClass):
         pass
 
     def aggregate(self, clients_models, global_model):
-        #fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
+        fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
         for key in global_model.keys():
-            torch_list_weights = torch.stack([(clients_models[i][key].float() + global_model[key]) for i in range(len(clients_models))],0)
-            global_model[key] = torch_list_weights.mean(0)
+            torch_list_weights = torch.stack([(clients_models[i][key].float() + global_model[key]) * fedavg_fraction[i] for i in range(len(clients_models))],0)
+            global_model[key] = torch_list_weights.sum(0)
         if self.num_of_nodes_contributor==10:
             self.num_of_nodes_contributor = 0
 
@@ -69,7 +70,7 @@ class FedAvgQ(FederatedLearningClass):
         mins = {}
         for key in raw_model.keys():
             #Skip the statstical parameters
-            if not Common.is_trainable(raw_model, key):
+            if raw_model[key].dtype == torch.long or ('running_var' in key) or ('running_mean' in key):
                 quantized_tensor, mins[key], scale[key] = raw_model[key], 0, 0
                 quantized_model[key] = quantized_tensor.to(torch.long)
             else:

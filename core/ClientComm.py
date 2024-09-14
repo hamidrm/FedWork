@@ -16,7 +16,6 @@ class ClientComm(Network):
         self.port = port
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        self.alive = True
         self.client_evt_fn = client_evt_fn
         self.kill_rcv_th = threading.Event()
 
@@ -34,6 +33,28 @@ class ClientComm(Network):
         self.send_intro_to_server()
         self.create_new_receiver(self.name, self.socket)
 
+    def release_all(self):
+
+        while not self.recv_queue.empty:
+            time.sleep(1)
+        while not self.send_queue.empty:
+            time.sleep(1)
+
+        self.sending_mutex.acquire()
+
+        self.send_thread_stop.set()
+
+        self.send_queue.put(None)
+        self.recv_queue.put(None)
+        self.sending_mutex.release()
+        for stop_evt in self.recv_thread_stop:
+            stop_evt.set()
+
+        self.sending_thread.join()
+
+        for rt, _ in self.receiving_threads:
+            rt.join()
+            
     def __recv_from_server(self, kill_rcv_th):
         logger.log_debug(f"[{self.name}]: Receiving thread has been started.")
         while not kill_rcv_th.is_set():
@@ -45,9 +66,12 @@ class ClientComm(Network):
                 if packet_param1 == COMM_HEADER_CMD_NOP:
                     pass
                 elif packet_param1 == COMM_HEADER_CMD_TURNOFF:
-                    self.release_all()
+                    
                     self.client_evt_fn(COMM_EVT_TURNOFF, None)
+                    
+                    self.socket.shutdown(socket.SHUT_RDWR)
                     self.socket.close()
+                    self.release_all()
                     self.kill_rcv_th.set()
                 elif packet_param1 == COMM_HEADER_CMD_START_TRAINNING:
                     self.client_evt_fn(COMM_EVT_TRAINING_START, Common.data_convert_from_bytes(data))
@@ -87,12 +111,6 @@ class ClientComm(Network):
         payload_to_send = Common.data_convert_to_bytes(data)
         logger.log_debug(f"[{self.name}]: Sending data to the server (payload_size={len(payload_to_send)}).")
         self.send_data(self.socket, self.name, COMM_HEADER_TYPES_DATA, 0, 0, payload_to_send)
-
-    def disconnect(self):
-        logger.log_debug(f"[{self.name}]: Disconnecting...")
-        self.alive = False
-        self.socket.close()
-        self.client_evt_fn(COMM_EVT_DISCONNECTED, {"reason":"client"})
 
     def send_intro_to_server(self):
         info = {}
