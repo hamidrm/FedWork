@@ -81,7 +81,7 @@ class Network:
             finally:
                 self.send_queue.task_done()
 
-        logger.log_warning("Sending thread terminated...")
+        logger.log_info("Sending thread terminated...")
 
     def resend_chunk_data(self, connection, receiver_id, chunk_seq_num):
         payload_offset = COMM_HCHUNK_TOTAL_DATA_SIZE+chunk_seq_num*COMM_TCHUNK_TOTAL_DATA_SIZE
@@ -225,4 +225,4 @@ class Network:
                         self.__add_to_recv_packet(packet_type, packet_param1, packet_param2, expected_length, bytes(total_data), recv_id)
                     else:
                         logger.log_error(f"We encountered such a critical and vital problem!'.")
-        logger.log_warning(f"Receive Thread Terminated.")
+        logger.log_info(f"Receive Thread Terminated.")
