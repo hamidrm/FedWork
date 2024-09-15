@@ -106,7 +106,7 @@ class profiler:
     def dump_variables_value_list(self):
         return self.vars_val_list
     
-    def reset_profiles(self):
-        self.profiles_list.clear()
-        self.monitored_vars.clear()
-        self.vars_val_list.clear()
+    def reset_profiles():
+        profiler().profiles_list.clear()
+        profiler().monitored_vars.clear()
+        profiler().vars_val_list.clear()
