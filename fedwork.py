@@ -235,6 +235,7 @@ class fedwork:
         # Step 2.
         # For each method, we have to execute federated learning according to corresponding configuration
         probes_bin = {}
+        profiler.reset_profiles()
         methods_cfg = methods_cfg if isinstance(methods_cfg, list) else [methods_cfg]
         for method in methods_cfg:
         
