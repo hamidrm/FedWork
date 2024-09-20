@@ -72,7 +72,6 @@ class FedPoll(FederatedLearningClass):
 
                 for model in clients_models:
                     models_bins=model["bin"]
-                    client_bins = []
                     shift_cnt = 0
 
                     for R_mat_i in range(self.no_r_mat):
