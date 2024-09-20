@@ -14,7 +14,6 @@ import dataset.dataset as DS
 from core.Server import *
 import torch.optim as optim
 from utils.plotter import Plotter
-from methods.FedPipe import FedPipe
 
 
 class fedwork:

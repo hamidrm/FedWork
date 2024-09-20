@@ -6,3 +6,4 @@ data/
 output/
 dataset/__pycache__/
 utils/__pycache__/
+myenv/
