@@ -1,0 +1,26 @@
+<fedwork_cfg name="fedpipe_benchmark" num_of_nodes="10" net_port="23334" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="100">
+	<dataset type="CIFAR10">
+		<var name="heterogeneous">False</var>
+		<var name="non_iid_level">0.5</var>
+		<var name="train_batch_size">128</var>
+		<var name="test_batch_size">256</var>
+		<var name="num_workers">0</var>
+		<var name="save_graph">True</var>
+		<var name="enclosed_info">True</var>
+	</dataset>
+
+	<localclients learning_rate="0.001" momentum="0.9" weight_decay="1e-7" optimizer="SGD" platform="cpu">10</localclients>
+	<method name="FedPipe" type="FedPipe" platform="cpu">
+		<arch type="ResNet18">
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">beta1=0.9,beta2=0.99,contributors_percent=50,epsilon=1e-8,eta=0.001</var>
+	</method>
+	<report save_log="True" log_over_net="192.168.166.143,23456">
+		<fig style="style=bmh;linewidths=1,1,1,1,1,1;" caption=" " name="epsilon" x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# rounds" methods="FedPollMethod3,FedPollMethod6,FedPollMethod1,FedPollMethod5,FedPollMethod2,FedPollMethod4," labels="FedPoll-MM(epsilon=0.01),FedPoll-MM(epsilon=0.005),FedPoll-MM(epsilon=0.001),FedPoll-MM(epsilon=0.0005),FedPoll-MM(epsilon=0.0001),FedPoll-MM(epsilon=0.00001)"/>
+		<fig style="style=bmh;colors=black,green,blue,brown,black;linestyles=--,:,-.,-;linewidths=1,1,1,1,1;" name="accu" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# rounds" methods="SCAFFOLD50p_corrected,FedPollMethod50p_noniid,SCAFFOLD10p_noniid" labels="SCAFFOLD,FedPoll-MaxMin,FedAvg"/>
+		<fig style="style=bmh;colors=black,green,blue,brown,black;linestyles=--,:,-.,-;linewidths=1,1,1,1,1;" name="loss" caption=" " x_axis="time" y_axis="EvaluationLoss" y_axis_title="Loss" x_axis_title="Time" methods="SCAFFOLD50p_corrected,FedPollMethod50p_noniid,SCAFFOLD10p_noniid" labels="SCAFFOLD,FedPoll-MaxMin,FedAvg"/>
+		<fig name="accuracy" caption="Evaluation Accuracy" x_axis="round" y_axis="EvaluationAccuracy" methods="FedPollMethod3,FedPollMethod6,FedPollMethod1,FedPollMethod5,FedPollMethod2,FedPollMethod4,FedPollMethod7,FedPollMethod8" x_axis_title="Round" y_axis_title="Accuracy %" labels="FedPoll(epsilon=0.01),FedPoll(epsilon=0.005),FedPoll(epsilon=0.001),FedPoll(epsilon=0.0005),FedPoll(epsilon=0.0001),FedPoll(epsilon=0.00001),FedPollMethod7,FedPollMethod8" y_axis_scale = "100" />
+		<fig name="losses" caption=" " x_axis="time" y_axis="EvaluationLoss" methods="FedPollMethod3,FedPollMethod6,FedPollMethod1,FedPollMethod5,FedPollMethod2,FedPollMethod4,FedPollMethod7,FedPollMethod8" x_axis_title="Time(s)" y_axis_title="Loss Value" y_axis_scale = "1" labels="FedPoll(epsilon=0.01),FedPoll(epsilon=0.005),FedPoll(epsilon=0.001),FedPoll(epsilon=0.0005),FedPoll(epsilon=0.0001),FedPoll(epsilon=0.00001),FedPollMethod7,FedPollMethod8"/>
+	</report>
+</fedwork_cfg>

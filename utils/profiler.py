@@ -17,29 +17,35 @@ class profiler:
             self.profiles_start = {}
             self.profiles_lock = {}
             self.vars_val_list = {}
-            self._variables_to_monitor = {}
+            self.monitored_vars = {}
 
-    def add_variable_to_monitor(self, variable_name, obj, attribute_name):
-        if variable_name not in self._variables_to_monitor:
-            self._variables_to_monitor[variable_name] = {
-                'object': obj,
-                'attribute_name': attribute_name,
-                'changes': []
-            }
-            setattr(obj.__class__, attribute_name, self.__create_property(attribute_name))
-        else:
-            print(f"Variable '{variable_name}' is already being monitored.")
+    def add_var_to_monitor(self, var_name, var_key, target_instance):
+        def monitor_var_change(new_val):
+            if var_key not in self.monitored_vars:
+                self.monitored_vars[var_key] = []
+            self.monitored_vars[var_key].append((time.time(), None, new_val))
 
-    def __create_property(self, attribute_name):
-        def setter(self, value):
-            self._variables_to_monitor[attribute_name]['changes'].append((time.time(), attribute_name, value))
-            setattr(self, f'_{attribute_name}', value)
+        # Get the current value of the variable
+        current_val = getattr(target_instance, var_name)
 
-        def getter(self):
-            return getattr(self, f'_{attribute_name}')
+        # If the variable exists, monitor it
+        if current_val is not None:
+            monitor_var_change(current_val)
 
-        return property(getter, setter)
+        # Override the variable with a custom setter to monitor changes
+        def setter(self, new_val):
+            nonlocal current_val
+            current_val = new_val
+            monitor_var_change(new_val)
+
+        # Set the custom setter for the variable
+        setattr(target_instance.__class__, var_name, property(lambda self: current_val, setter))
+
     
+    @staticmethod
+    def add_var_monitor_changes(var, obj, var_key):
+        profiler().add_var_to_monitor(var, var_key, obj)
+
     @staticmethod
     def start_measuring(probe_name):
         profiler().start_time_profile(probe_name)
@@ -51,6 +57,14 @@ class profiler:
     @staticmethod
     def save_variable(probe_name, value, key):
         profiler().store_value(probe_name, value, key)
+
+    @staticmethod
+    def dump_probes():
+        output_dict = {}
+        output_dict["time_profiles"] = profiler().dump_time_profile_list()
+        output_dict["var_changes"] = profiler().dump_variables_changes_list()
+        output_dict["var_values"] = profiler().dump_variables_value_list()
+        return output_dict
 
     def is_probe_available(self, probe_name):
         return ((probe_name in self.vars_val_list.keys()) or (probe_name in self.profiles_start.keys()))
@@ -75,11 +89,11 @@ class profiler:
             return
         self.profiles_lock[name] = True
 
-        self.profiles_start[name] = time.time_ns() // 1000
+        self.profiles_start[name] = common.Common.time_ns() // 1000
         
 
     def measure_time(self, name: str, key=0):
-        elapsed_us = (time.time_ns() // 1000) - self.profiles_start[name]
+        elapsed_us = (common.Common.time_ns() // 1000) - self.profiles_start[name]
         self.profiles_list[name].append((time.time(), key, elapsed_us))
         self.profiles_lock[name] = False
 
@@ -87,4 +101,15 @@ class profiler:
         return self.profiles_list
     
     def dump_variables_changes_list(self):
-        return self._variables_to_monitor
+        return self.monitored_vars
+    
+    def dump_variables_value_list(self):
+        return self.vars_val_list
+    
+    @staticmethod
+    def reset_profiles():
+        profiler().profiles_list.clear()
+        profiler().monitored_vars.clear()
+        profiler().vars_val_list.clear()
+        profiler().profiles_lock.clear()
+        profiler().profiles_start.clear()

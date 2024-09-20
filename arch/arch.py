@@ -11,12 +11,23 @@ class BaseArch(Enum):
     FeedForwardNet2 = "FeedForwardNet2"
     ResNet18 = "ResNet18"
     ResNet34 = "ResNet34"
+    VGG16 = "VGG16"
+    VGG7 = "VGG7"
 
 class ActivationFunction(Enum):
+    ReLUFunction = "relu"
+    ReLU6Function = "relu6"
+    ELUFunction = "elu"
+    SELUFunction = "selu"
+    CELUFunction = "celu"
+    LeakyReLUFunction = "leaky_relu"
+    PReLUFunction = "prelu"
+    RReLUFunction = "rrelu"
     SigmoidFunction = "sigmoid"
     TanhFunction = "tanh"
-    ReLUFunction = "relu"
-    LeakyReLUFunction = "LeakyReLU"
+    SoftmaxFunction = "softmax"
+    Softmax2dFunction = "softmax2d"
+    LogSoftmaxFunction = "logsoftmax"
 
 class FWArch:
     def __init__(self, base_arch: BaseArch):
@@ -47,7 +58,10 @@ class FWArch:
     
     def SetParameter(self, parameter_name, parameter_value):
         if parameter_name in self.variables_type.keys():
-            if self.variables_type[parameter_name] == "integer":
+            if self.variables_type[parameter_name] == "bool":
+                parameter_value = bool(parameter_value)
+                self.variables_value[parameter_name] = parameter_value
+            elif self.variables_type[parameter_name] == "integer":
                 parameter_value = int(parameter_value)
                 self.variables_value[parameter_name] = parameter_value
             elif self.variables_type[parameter_name] == "act_fn":
@@ -56,6 +70,12 @@ class FWArch:
                     return
                 self.variables_value[parameter_name] = parameter_value.value
 
+    def get_var_list(self):
+        return self.variables_value.keys()
+    
+    def get_var_type(self, var_name):
+        return self.variables_type[var_name]
+    
     def Build(self):
         for _, (var_name, var_val) in enumerate(self.variables_value.items()):
             if var_val == "undef":

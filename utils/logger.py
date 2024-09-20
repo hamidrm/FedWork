@@ -86,6 +86,11 @@ class logger:
         self.log_file_path = os.path.join(os.getcwd(), utils.consts.OUTPUT_DIR)
         self.log_file_path = os.path.join(self.log_file_path, self.file_name)
 
+    def set_file_path(self, path):
+        time_date = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        self.file_name = f"output_{time_date}_.log"
+        self.log_file_path = os.path.join(path, self.file_name)
+
     def set_tag(self, tag: str):
         self.tag = tag
 

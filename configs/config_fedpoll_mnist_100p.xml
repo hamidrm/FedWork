@@ -1,0 +1,34 @@
+<fedwork_cfg name="fedavg_mnist_100p_benchmark" num_of_nodes="10" net_port="5666" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="200">
+	<dataset type="MNIST">
+		<var name="heterogeneous">True</var>
+		<var name="non_iid_level">1</var>
+		<var name="train_batch_size">128</var>
+		<var name="test_batch_size">256</var>
+		<var name="num_workers">0</var>
+		<var name="save_graph">True</var>
+		<var name="enclosed_info">False</var>
+	</dataset>
+
+	<localclients learning_rate="0.001" momentum="0.9" weight_decay="1e-7" optimizer="SGD" platform="cpu">10</localclients>
+	<method name="FedPoll3e50p" type="FedPoll" platform="cpu">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">relu</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">no_r=8,epsilon=0.01,contributors_percent=50</var>
+	</method>
+	<method name="SCAFFOLD3e50p" type="SCAFFOLD" platform="cpu">
+		<arch type="FeedForwardNet1">
+			<var name="ActivationFunction">relu</var>
+			<var name="NumberOfHiddenNodes">1024</var>
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">contributors_percent=50</var>
+	</method>
+	<report save_log="True" log_over_net="127.0.0.1,23456">
+		<fig name="accu" caption="" x_axis="round" y_axis="EvaluationAccuracy" methods="FedPoll3e30p,SCAFFOLD3e30p" labels="FedProx,SCAFFOLD"/>
+		<fig name="loss" caption="" x_axis="round" y_axis="EvaluationLoss" methods="FedPoll3e30p,SCAFFOLD3e30p" labels="FedProx,SCAFFOLD"/>
+		<fig name="loss" caption="" x_axis="time" y_axis="ServerDataRecvBytes" methods="FedPoll3e30p,SCAFFOLD3e30p" labels="FedProx,SCAFFOLD"/>
+	</report>
+</fedwork_cfg>

@@ -1,8 +1,9 @@
-__pycache__
-arch/__pycache__
-dataset/__pycache__
-utils/__pycache__
-data
-output
 *.log
-
+*.png
+__pycache__/
+arch/__pycache__/
+data/
+output/
+dataset/__pycache__/
+utils/__pycache__/
+myenv/

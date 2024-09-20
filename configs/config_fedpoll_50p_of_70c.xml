@@ -1,0 +1,35 @@
+<fedwork_cfg name="fedpoll_50p_of_70c" num_of_nodes="10" net_port="23335" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="100">
+	<dataset type="CIFAR10">
+		<var name="heterogeneous">True</var>
+		<var name="non_iid_level">0.7</var>
+		<var name="train_batch_size">128</var>
+		<var name="test_batch_size">256</var>
+		<var name="num_workers">0</var>
+		<var name="save_graph">True</var>
+		<var name="enclosed_info">True</var>
+	</dataset>
+
+	<localclients learning_rate="0.001" momentum="0.9" weight_decay="1e-7" optimizer="SGD" platform="cuda">10</localclients>
+	<method name="FedPollMethod" type="FedPoll" platform="cuda">
+		<arch type="ResNet18">
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">no_r=8,epsilon=0.001,contributors_percent=50</var>
+	</method>
+	<method name="SCAFFOLDMethod" type="SCAFFOLD" platform="cuda">
+		<arch type="ResNet18">
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">contributors_percent=50</var>
+	</method>
+	<method name="FedYogiMethod" type="FedYogi" platform="cuda">
+		<arch type="ResNet18">
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">beta1=0.9,beta2=0.99,contributors_percent=50,epsilon=1e-8,eta=0.001</var>
+	</method>
+	<report save_log="True" log_over_net="192.168.166.143,23456">
+		<fig style="style=bmh;colors=black,green,blue,brown,black;linestyles=--,:,-.,-;linewidths=1,1,1,1,1;" name="accu" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# rounds" methods="FedPollMethod,SCAFFOLDMethod,FedYogiMethod" labels="FedPoll-MaxMin,SCAFFOLD,FedYogi"/>
+		<fig style="style=bmh;colors=black,green,blue,brown,black;linestyles=--,:,-.,-;linewidths=1,1,1,1,1;" name="loss" caption=" " x_axis="time" y_axis="EvaluationLoss" y_axis_title="Loss" x_axis_title="time" methods="FedPollMethod,SCAFFOLDMethod,FedYogiMethod" labels="FedPoll-MaxMin,SCAFFOLD,FedYogi"/>
+	</report>
+</fedwork_cfg>
