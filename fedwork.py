@@ -15,7 +15,6 @@ from core.Server import *
 import torch.optim as optim
 from utils.plotter import Plotter
 
-
 class fedwork:
     def __init__(self):
         self.local_clients = []
