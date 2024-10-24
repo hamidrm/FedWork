@@ -175,7 +175,7 @@ class Client:
                 scheduler.step()
         
         if self.method != None:
-            packed_data = self.method.pack_client_model(self.client_model.state_dict(), global_model = self.global_model.state_dict())
+            packed_data = self.method.pack_client_model(self.client_model.state_dict(), global_model = self.global_model.state_dict(), client_name = self.name)
             self.client_comm.send_data_to_server(packed_data)
         self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_TRAINNING_DONE, 0)
         self.is_training_lock.release()

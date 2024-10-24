@@ -62,7 +62,7 @@ class FedAvgQ(FederatedLearningClass):
     def select_clients_to_update(self, all_clients):
         return all_clients
 
-    def pack_client_model(self, raw_model, global_model):
+    def pack_client_model(self, raw_model, global_model, client_name):
         quantized_model = {}
         packet_to_send = {}
         scale = {}

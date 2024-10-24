@@ -50,7 +50,7 @@ class FedAvg(FederatedLearningClass):
     def select_clients_to_update(self, all_clients):
         return all_clients
 
-    def pack_client_model(self, raw_model, global_model):
+    def pack_client_model(self, raw_model, global_model, client_name):
         return raw_model
 
     def unpack_client_model(self, packed_model):

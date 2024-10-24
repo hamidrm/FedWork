@@ -174,7 +174,7 @@ class FedPollN(FederatedLearningClass):
 
         return global_model
     
-    def pack_client_model(self, raw_model, global_model):
+    def pack_client_model(self, raw_model, global_model, client_name):
 
         client_trained_model = raw_model
 

@@ -33,7 +33,7 @@ class FederatedLearningClass(ABC):
         pass
     
     @abstractmethod
-    def pack_client_model(self, raw_model, global_model=None):
+    def pack_client_model(self, raw_model, global_model=None, client_name=""):
         pass
 
     @abstractmethod

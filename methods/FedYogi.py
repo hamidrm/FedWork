@@ -93,7 +93,7 @@ class FedYogi(FederatedLearningClass):
     def select_clients_to_update(self, all_clients):
         return all_clients
 
-    def pack_client_model(self, raw_model, global_model):
+    def pack_client_model(self, raw_model, global_model, client_name):
         for key in raw_model.keys():
             if Common.is_trainable(global_model, key):
                 raw_model[key] = raw_model[key] - global_model[key]
