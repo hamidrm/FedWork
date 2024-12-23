@@ -14,7 +14,7 @@ import dataset.dataset as DS
 from core.Server import *
 import torch.optim as optim
 from utils.plotter import Plotter
-
+from methods.FedAvgMIA import FedAvgMIA
 
 class fedwork:
     def __init__(self):
@@ -75,9 +75,9 @@ class fedwork:
         num_workers = self.get_var(vars, "num_workers", int, 1)
         save_graph = self.get_var(vars, "save_graph", bool, True)
         enclose_info = self.get_var(vars, "enclosed_info", bool, False)
+        use_dirichlet = self.get_var(vars, "dirichlet", bool, False)
 
-
-        dataset_train_list, dataset_test = DS.create_datasets(num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level, train_batch_size, test_batch_size, num_workers, save_graph, enclose_info, dir_path)
+        dataset_train_list, dataset_test = DS.create_datasets(num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level, train_batch_size, test_batch_size, use_dirichlet, num_workers, save_graph, enclose_info, dir_path)
 
 
         if not os.path.exists(dir_path):
@@ -351,7 +351,7 @@ class fedwork:
             if method_args == "":
                 method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform))
             else:
-                method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
+                method_obj = FedAvgMIA((method_num_of_epochs, num_of_rounds, weights, method_platform, method_args)) #self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
             
             server = Server(IpAddr(net_ip, net_port), method_obj, test_dataset, global_model, loss_func, method_platform)
 
@@ -404,7 +404,7 @@ class fedwork:
                         if method_args == "":
                             method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform))
                         else:
-                            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
+                            method_obj = FedAvgMIA((method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))  #self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
                         
                         new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform)
                         self.local_clients.append(new_client)
@@ -632,7 +632,7 @@ class fedwork:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 1:
+    if len(sys.argv) != 2:
         print("Configuration file was not determined!\nUse: fedwork.py configuration_xml_file")
         exit()
 

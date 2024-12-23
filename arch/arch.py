@@ -53,7 +53,14 @@ class FWArch:
                 p_type = name_type[1]
                 if p_type != "":
                     self.variables_type[p_name] = p_type
-            self.variables_value[p_name] = "undef"
+
+            if(len(name_type) == 3):
+                p_def_val = name_type[2]
+                if p_def_val != "":
+                    self.variables_value[p_name] = p_def_val
+                    self.SetParameter(p_name, p_def_val)
+            else:
+                self.variables_value[p_name] = "undef"
         
     
     def SetParameter(self, parameter_name, parameter_value):

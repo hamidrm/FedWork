@@ -17,7 +17,7 @@ class FederatedLearningClass(ABC):
         pass
 
     @abstractmethod
-    def aggregate(self, clients_model, global_model):
+    def aggregate(self, clients_model, global_model, global_model_obj=None, clients_id=None):
         pass
 
     @abstractmethod

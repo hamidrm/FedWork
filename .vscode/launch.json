@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "FedWork",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/fedwork.py",
+            "console": "integratedTerminal",
+            "args": [
+                "config_fedavg_miad_mnist.xml"
+            ]
+        }
+    ]
+}

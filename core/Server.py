@@ -20,6 +20,7 @@ class Server:
         self.executer = executer
         self.test_ds = test_ds
         self.received_models = []
+        self.received_models_id = []
         self.received_models_lock = threading.Lock()
         self.method_is_processing_lock = threading.Lock()
         self.fl_method = fl_method
@@ -33,26 +34,24 @@ class Server:
         profiler.add_var_monitor_changes("no_rcvd_data", self.server_comm, MEASURE_PROBE_CHANGES_DATA_RCVD_BYTES)
         profiler.add_var_monitor_changes("no_rcvd_data", self.server_comm, MEASURE_PROBE_CHANGES_DATA_SENT_BYTES)
 
-    def start_round_ex(self, epochs, lr_mileston, gamma):
+    def start_round_ex(self, epochs, lr = None):
         clients = self.server_comm.get_clients()
         clients_subset = self.fl_method.select_clients(clients)
         training_conf = {}
         logger.log_debug(f"Start new round (with dedicated configuration)")
         for client_name in clients_subset.keys():
             training_conf["epochs_num"] = epochs[client_name]
-            training_conf["milestone_list"] = lr_mileston[client_name]
-            training_conf["gamma"] = gamma[client_name]
+            training_conf["lr"] = lr
             self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
 
-    def start_round(self, epochs, lr_mileston: list = [], gamma = 0.00):
+    def start_round(self, epochs, lr = None):
         clients = self.server_comm.get_clients()
         clients_subset = self.fl_method.select_clients_to_train(clients)
         training_conf = {}
         self.round_number += 1
         training_conf["epochs_num"] = epochs
-        training_conf["milestone_list"] = lr_mileston
-        training_conf["gamma"] = gamma
-        logger.log_debug(f"Start new round (epochs={epochs}, lr_mileston={lr_mileston}, gamma={gamma})")
+        training_conf["lr"] = lr
+        logger.log_debug(f"Start new round (epochs={epochs}, lr={lr})")
         for client_name in clients_subset.keys():
             logger.log_debug(f"Start training for '{client_name}'.")
             self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
@@ -60,12 +59,10 @@ class Server:
     def fetch_clients_pool(self):
         return self.server_comm.clients
     
-    def start_periodic_mode(self, client_name, epochs, lr_mileston, gamma, interval):
+    def start_periodic_mode(self, client_name, epochs, lr = None):
         periodic_cfg = {}
         periodic_cfg["epochs_num"] = epochs
-        periodic_cfg["milestone_list"] = lr_mileston
-        periodic_cfg["gamma"] = gamma
-        periodic_cfg["interval"] = interval
+        periodic_cfg["lr"] = lr
         self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_PERIODIC_MODE, 0, periodic_cfg)
 
     def stop_periodic_mode(self, client_name):
@@ -82,7 +79,8 @@ class Server:
             logger.log_debug(f"The trained model received from '{client.name}'.")
 
             with self.received_models_lock:
-                self.received_models.append(data)
+                self.received_models.append((client.name, data))
+
             logger.log_info(f"[{self.fl_method.get_name()}]: Trained model received from '{client.name}'.")
             with self.received_models_lock:
                 if self.fl_method.ready_to_aggregate(len(self.received_models)):
@@ -115,11 +113,13 @@ class Server:
             self.server_comm.send_data_pkg(client, global_model_pack)
             
     def __aggregation_thread(self, packed_models_list):
-        models_list = [self.fl_method.unpack_client_model(packed_model) for packed_model in packed_models_list]
+        models_list = [self.fl_method.unpack_client_model(packed_model[1]) for packed_model in packed_models_list]
 
         profiler.start_measuring(MEASURE_PROBE_AGGR_TIME)
         self.global_model_dict = self.global_model.state_dict()
-        self.fl_method.aggregate(models_list, self.global_model_dict)
+
+        models_id = [t[0] for t in packed_models_list]
+        self.fl_method.aggregate(models_list, self.global_model_dict, self.global_model, models_id)
         self.global_model.load_state_dict(self.global_model_dict)
         profiler.stop_measuring(MEASURE_PROBE_AGGR_TIME, self.round_number)
 

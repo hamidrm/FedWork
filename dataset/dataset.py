@@ -11,8 +11,8 @@ import utils.consts as consts
 from collections import Counter
 import numpy as np
 
-def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_iid_level=0.1, train_batch_size=64, test_batch_size=64, num_workers=8, save_graph=True, add_info_to_figure=False, path=None):
-    logger.log_info(f'Heterogeneous: {heterogeneous}, Non-i.i.d Level: {non_iid_level}, Train Batch Size: {train_batch_size}, Test Batch Size: {test_batch_size}')
+def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_iid_level=0.1, train_batch_size=64, test_batch_size=64, use_dirichlet=False, num_workers=8, save_graph=True, add_info_to_figure=False, path=None):
+    logger.log_info(f'Dirichlet: {use_dirichlet}, Heterogeneous: {heterogeneous}, Non-i.i.d Level: {non_iid_level}, Train Batch Size: {train_batch_size}, Test Batch Size: {test_batch_size}')
     classes = []
     if ds_type == "MNIST":
         transform_train = transforms.Compose([
@@ -74,7 +74,14 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
     train_total_dataset_size = len(train_dataset)
     train_groups_eq_size = train_total_dataset_size // train_ds_num
 
-    
+    # Compute Dirichlet distribution for non-iid partitioning if enabled
+    if use_dirichlet:
+        dirichlet_alpha = non_iid_level
+        # For each client, sample proportions for each class from a Dirichlet distribution
+        class_proportions = np.random.dirichlet([dirichlet_alpha] * train_classes_num, train_ds_num)
+    else:
+        class_proportions = None  # No Dirichlet, proceed with original logic
+
 
     for _ in range(train_ds_num - 1):
         group_dataset_len = train_groups_eq_size + (torch.randint(int((non_iid_level / 2.0) * train_groups_eq_size) // -2, int((non_iid_level / 2.0) * train_groups_eq_size) // 2, (1,)).item() if heterogeneous and non_iid_level > 0.0 else 0)
@@ -99,29 +106,40 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
     client_distributions = []
     for subset_index in range(train_ds_num):
         train_group_index_list = []
-        label_len_list = []
-        labels_list_size = len(train_groups_labels[subset_index])
 
-        each_label_standard_size = train_dataset_subsets_len[subset_index] // labels_list_size
-        for label in range(labels_list_size - 1):
-            label_len = each_label_standard_size + (torch.randint(int((non_iid_level / 2.0) * each_label_standard_size) // -2, int((non_iid_level / 2.0) * each_label_standard_size) // 2, (1,)).item() if non_iid_level > 0.0 else 0)
-            label_len_list.append(label_len)
-            train_dataset_subsets_len[subset_index] -= label_len
-        label_len_list.append(train_dataset_subsets_len[subset_index])
+        if use_dirichlet:
+            # Use Dirichlet proportions to assign data to clients
+            for class_index in range(train_classes_num):
+                class_indices = [i for i, x in enumerate(dataset_label_list) if x == class_index]
+                class_size = int(class_proportions[subset_index][class_index] * len(class_indices))
+                
+                # Randomly sample indices for this class based on the proportion
+                sampled_indices = np.random.choice(class_indices, class_size, replace=False).tolist()
+                train_group_index_list.extend(sampled_indices)
+        else:
+            label_len_list = []
+            labels_list_size = len(train_groups_labels[subset_index])
+
+            each_label_standard_size = train_dataset_subsets_len[subset_index] // labels_list_size
+            for label in range(labels_list_size - 1):
+                label_len = each_label_standard_size + (torch.randint(int((non_iid_level / 2.0) * each_label_standard_size) // -2, int((non_iid_level / 2.0) * each_label_standard_size) // 2, (1,)).item() if non_iid_level > 0.0 else 0)
+                label_len_list.append(label_len)
+                train_dataset_subsets_len[subset_index] -= label_len
+            label_len_list.append(train_dataset_subsets_len[subset_index])
 
 
 
-        for label_index,label in enumerate(train_groups_labels[subset_index]):
+            for label_index,label in enumerate(train_groups_labels[subset_index]):
+                
+                indices = [index for index, value in enumerate(dataset_label_list) if ((value == label) and ((index not in train_group_index_list) or (torch.rand(1).item() < 0.25)))]
+                
+                needed_length = int(label_len_list[label_index] * non_iid_level)
+                random_indices = random.sample(range(len(indices)), min(len(indices), needed_length) )
+                needed_indices = [indices[i] for i in random_indices]
+
+                train_group_index_list += needed_indices
+
             
-            indices = [index for index, value in enumerate(dataset_label_list) if ((value == label) and ((index not in train_group_index_list) or (torch.rand(1).item() < 0.25)))]
-            
-            needed_length = int(label_len_list[label_index] * non_iid_level)
-            random_indices = random.sample(range(len(indices)), min(len(indices), needed_length) )
-            needed_indices = [indices[i] for i in random_indices]
-
-            train_group_index_list += needed_indices
-
-        
         remainded_indices = train_dataset_subsets_expected_len[subset_index] - len(train_group_index_list)
         
         for _ in range(remainded_indices):
@@ -138,7 +156,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         random.shuffle(train_group_index_list)
         dataset_client = Subset(train_dataset, train_group_index_list)
         train_datasets.append(DataLoader(dataset_client, batch_size=train_batch_size,
-                                   shuffle=True, num_workers=num_workers))
+                                shuffle=True, num_workers=num_workers))
         
         # Get the targets/labels for the current client
         client_labels = [train_dataset[i][1] for i in train_group_index_list]
@@ -211,7 +229,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
 
         for class_index, cls in enumerate(all_classes):
             class_distribution = distribution_matrix[:, class_index]
-            ax.bar(range(len(client_distributions)), class_distribution, bottom=bottom, color=colors[class_index], label=f'Class {cls}')
+            ax.bar(range(len(client_distributions)), class_distribution, bottom=bottom, label=f'Class {cls}')
             bottom += class_distribution
         
         # Customize the plot
@@ -222,7 +240,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
 
         plt.tick_params(axis='x', labelsize=20)
         plt.tick_params(axis='y', labelsize=20)
-        plt.xticks([i for i in range(len(all_classes))], [f"C#{i}" for i in range(len(all_classes))])
+        plt.xticks([i for i in range(len(train_datasets))], [f"{i}" for i in range(len(train_datasets))])
 
         full_path = os.path.join(dir_path, f"dataset_distribution_{time_str}_sbp.pdf")
         plt.savefig(full_path, format="pdf", bbox_inches="tight")

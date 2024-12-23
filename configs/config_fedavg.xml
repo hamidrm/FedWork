@@ -9,9 +9,9 @@
 		<var name="enclosed_info">True</var>
 	</dataset>
 
-	<localclients learning_rate="0.001" momentum="0.9" weight_decay="1e-7" optimizer="SGD" platform="cuda">20</localclients>
+	<localclients learning_rate="0.001" momentum="0.9" weight_decay="1e-7" optimizer="SGD" platform="cpu">20</localclients>
 
-	<method name="FedAvgNormal" type="FedAvg" platform="cuda">
+	<method name="FedAvgNormal" type="FedAvg" platform="cpu">
 		<arch type="FeedForwardNet1">
 			<var name="ActivationFunction">relu</var>
 			<var name="NumberOfHiddenNodes">1024</var>
