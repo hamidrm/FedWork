@@ -11,7 +11,7 @@ from utils.security.MIA import *
 from torch.utils.data import DataLoader, SequentialSampler, BatchSampler
 import math
 
-class FedAvgMIA(FederatedLearningClass):
+class FedAvgMIACos(FederatedLearningClass):
 
     def __init__(self, args = ()):
         super().__init__()
@@ -47,12 +47,12 @@ class FedAvgMIA(FederatedLearningClass):
 
 
     def get_name(self):
-        return "FedAvgMIA"
+        return "FedAvgMIACos"
     
     def init_method(self):
         dataset_loader_validation, dataset_loader_train = self.get_data_loaders()
-        #self.cos_mia = CosMIA(dataset_loader_train, dataset_loader_validation, torch.optim.SGD, nn.CrossEntropyLoss)
-        self.fedmia_attack = FedMIA(dataset_loader_train, dataset_loader_validation, torch.optim.SGD, nn.CrossEntropyLoss)
+        self.cos_mia = CosMIA(dataset_loader_train, dataset_loader_validation, torch.optim.SGD, nn.CrossEntropyLoss)
+        #self.fedmia_attack = FedMIA(dataset_loader_train, dataset_loader_validation, torch.optim.SGD, nn.CrossEntropyLoss)
 
     def aggregate(self, clients_models, global_model, global_model_obj, clients_id):
 
@@ -72,20 +72,20 @@ class FedAvgMIA(FederatedLearningClass):
             global_model_clone.load_state_dict(global_model)
 
 
-            #self.cos_mia.execute(target_model, global_model_clone, self.platform, self.lr)
-            #res = self.cos_mia.get_last_auc_metrics()
+            self.cos_mia.execute(target_model, global_model_clone, self.platform, self.lr)
+            res = self.cos_mia.get_last_auc_metrics()
 
-            shadow_models=[]
-            for i, client_state_dict in enumerate(clients_models):
-                shadow_model = model_class().to(self.platform)
-                shadow_model.load_state_dict(client_state_dict)
-                if target_model_index != i:
-                    shadow_models.append(shadow_model)
+            # shadow_models=[]
+            # for i, client_state_dict in enumerate(clients_models):
+            #     shadow_model = model_class().to(self.platform)
+            #     shadow_model.load_state_dict(client_state_dict)
+            #     if target_model_index != i:
+            #         shadow_models.append(shadow_model)
 
-            self.fedmia_attack.execute(shadow_models, target_model, global_model_clone, self.platform, self.lr)
-            res = self.fedmia_attack.get_last_auc_metrics()
+            # self.fedmia_attack.execute(shadow_models, target_model, global_model_clone, self.platform, self.lr)
+            # res = self.fedmia_attack.get_last_auc_metrics()
 
-            logger.log_normal(f"FedMIA Attack on {self.round_num} epochs: {res}, model: {target_model_name}")
+            logger.log_normal(f"Cos Attack on {self.round_num} epochs: {res}, model: {target_model_name}")
             profiler.save_variable("MIA", res["tprs"]["0.01"], self.round_num - 1)
 
 
@@ -100,9 +100,9 @@ class FedAvgMIA(FederatedLearningClass):
             self.server.start_round(self.clients_epochs, self.lr)
             return (eval_loss, eval_accuracy)
         else:
-            res = self.fedmia_attack.get_auc_metrics(self.platform)
-            #res = self.cos_mia.get_auc_metrics(self.platform)
-            logger.log_normal(f"Final FedMIA Attack on {self.round_num} epochs: {res}")
+            #res = self.fedmia_attack.get_auc_metrics(self.platform)
+            res = self.cos_mia.get_auc_metrics(self.platform)
+            logger.log_normal(f"Final Cos Attack on {self.round_num} epochs: {res}")
             logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
             return None
 

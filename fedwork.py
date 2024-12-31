@@ -314,6 +314,8 @@ class fedwork:
             vars_list = arch.get_var_list()
 
             if arch_cfg_vars is not None:
+                if type(arch_cfg_vars) == dict:
+                    arch_cfg_vars = [arch_cfg_vars]
                 for var in arch_cfg_vars:
                     attr_name_key = "@name"
                     var_value_key = "#text"
@@ -330,18 +332,15 @@ class fedwork:
 
 
                     if var_name in vars_list:
-                        var_type = arch.get_var_type(var_name)
-                        if var_type == "integer":
-                            arch.SetParameter(var_name, int(var_text))
-                        elif var_type == "act_fn":
-                            arch.SetParameter(var_name, self.get_activation_function(var_text))
-                        elif var_type == "bool":
-                            arch.SetParameter(var_name, bool(var_text))
-                        else:
-                            util.logger.log_error(f"Unexpectedly error in type of the variable '{var_name}'!")
-                            break
+                        arch.SetParameter(var_name, var_text)
+
                 
-            arch.Build()
+            msg = arch.Build()
+
+            if msg is not '':
+                util.logger.log_error(f"Model Architecture Error: '{msg}'")
+                break
+        
             global_model = arch.CreateModel().to(method_platform)
 
             loss_func = self.get_loss_function(eval_criterion)
@@ -351,7 +350,7 @@ class fedwork:
             if method_args == "":
                 method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform))
             else:
-                method_obj = FedAvgMIA((method_num_of_epochs, num_of_rounds, weights, method_platform, method_args)) #self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
+                method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
             
             server = Server(IpAddr(net_ip, net_port), method_obj, test_dataset, global_model, loss_func, method_platform)
 
@@ -404,7 +403,7 @@ class fedwork:
                         if method_args == "":
                             method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform))
                         else:
-                            method_obj = FedAvgMIA((method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))  #self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
+                            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
                         
                         new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform)
                         self.local_clients.append(new_client)

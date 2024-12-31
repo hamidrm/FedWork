@@ -6,38 +6,44 @@ from torch.distributions.normal import Normal
 class MIACommon:
     @staticmethod
     def calculate_auc_metrics(val_scores, train_scores):
+        import torch
+        import numpy as np
+
         # Labels and scores concatenation
         labels = torch.cat([torch.zeros_like(val_scores), torch.ones_like(train_scores)])
         scores = torch.cat([val_scores, train_scores])
 
-        # Compute ROC curve using PyTorch
-        sorted_indices = torch.argsort(scores, descending=True)
-        labels = labels[sorted_indices]
-        tps = torch.cumsum(labels, dim=0)
-        fps = torch.cumsum(1 - labels, dim=0)
+        # Compute ROC curve similar to sklearn.metrics.roc_curve
+        scores_np = scores.cpu().numpy()
+        labels_np = labels.cpu().numpy()
+        sorted_indices = np.argsort(-scores_np)  # Descending sort
+        sorted_labels = labels_np[sorted_indices]
+
+        tps = np.cumsum(sorted_labels)  # True Positives
+        fps = np.cumsum(1 - sorted_labels)  # False Positives
 
         # Calculate FPR and TPR
         tpr = tps / tps[-1]
         fpr = fps / fps[-1]
 
-        # Calculate AUC
-        auc = torch.trapz(tpr, fpr).item()
+        # Calculate AUC using trapezoidal rule
+        auc = np.trapz(tpr, fpr)
 
         # Log-space AUC calculation
-        log_tpr = torch.log10(torch.clamp(tpr, 1e-5, 1))
-        log_fpr = torch.log10(torch.clamp(fpr, 1e-5, 1))
+        log_tpr = np.log10(np.clip(tpr, 1e-5, 1))
+        log_fpr = np.log10(np.clip(fpr, 1e-5, 1))
         log_tpr = (log_tpr + 5) / 5.0
         log_fpr = (log_fpr + 5) / 5.0
-        log_auc = torch.trapz(log_tpr, log_fpr).item()
+        log_auc = np.trapz(log_tpr, log_fpr)
 
         # TPRs at specific FPR thresholds
-        fpr_thresholds = torch.tensor([0.1, 0.02, 0.01, 0.001, 0.0001], device=fpr.device)
+        fpr_thresholds = [0.1, 0.02, 0.01, 0.001, 0.0001]
         fpr_str = ["0.1", "0.02", "0.01", "0.001", "0.0001"]
         tprs_at_thresholds = {}
         for i, threshold in enumerate(fpr_thresholds):
-            valid_indices = fpr < threshold
-            if torch.any(valid_indices):
-                tprs_at_thresholds[fpr_str[i]] = tpr[torch.where(valid_indices)[0][-1]].item()
+            indices_below_threshold = np.where(fpr < threshold)[0]
+            if len(indices_below_threshold) > 0:
+                tprs_at_thresholds[fpr_str[i]] = tpr[indices_below_threshold[-1]]
             else:
                 tprs_at_thresholds[fpr_str[i]] = 0.0
 
@@ -46,7 +52,6 @@ class MIACommon:
             "log_auc": log_auc,
             "tprs": tprs_at_thresholds
         }
-
     @staticmethod
     def compute_batch_gradients(data_loader, model, loss_fn, device):
         model.train()
@@ -179,7 +184,7 @@ class CosMIA:
         )
 
         # Append scores to the list
-        self.scores.append((val_cos, train_cos))
+        self.scores.append((torch.tensor(val_cos).cpu(), torch.tensor(train_cos).cpu()))
 
 class GradDiffMIA:
     def __init__(self, train_data_loader, validation_data_loader, optimizer, loss_fn) -> None:

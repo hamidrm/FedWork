@@ -7,19 +7,19 @@ class AlexNet(nn.Module):
         super(AlexNet, self).__init__()
         
         # Convolutional layers
-        self.conv1 = nn.Conv2d(in_channels=<<NumberOfInputChannels:integer>>, out_channels=96, kernel_size=11, stride=4, padding=2)
-        self.conv2 = nn.Conv2d(in_channels=96, out_channels=256, kernel_size=5, stride=1, padding=2)
-        self.conv3 = nn.Conv2d(in_channels=256, out_channels=384, kernel_size=3, stride=1, padding=1)
-        self.conv4 = nn.Conv2d(in_channels=384, out_channels=384, kernel_size=3, stride=1, padding=1)
-        self.conv5 = nn.Conv2d(in_channels=384, out_channels=256, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(in_channels=<<NumberOfInputChannels:integer>>,  out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=192, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(in_channels=192, out_channels=384, kernel_size=3, stride=1, padding=1)
+        self.conv4 = nn.Conv2d(in_channels=384, out_channels=256, kernel_size=3, stride=1, padding=1)
+        self.conv5 = nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1)
         
         # Max-pooling layers
-        self.pool = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         
         # Fully connected layers
-        self.fc1 = nn.Linear(256 * (<<InputDataLen:integer>> // 32) * (<<InputDataLen>> // 32), 4096)
+        self.fc1 = nn.Linear(256 * (<<InputImageSize:integer>> // 8) * (<<InputImageSize>> // 8), 4096)
         self.fc2 = nn.Linear(4096, 4096)
-        self.fc3 = nn.Linear(4096, <<NumberOfOutputClasses:integer>>)
+        self.fc3 = nn.Linear(4096, <<NumberOfOutputNodes:integer>>)
         
     def forward(self, x):
         # First block

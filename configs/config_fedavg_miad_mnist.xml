@@ -1,4 +1,4 @@
-<fedwork_cfg name="fedavg_miad" num_of_nodes="10" net_port="36125" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
+<fedwork_cfg name="fedavg_miad" num_of_nodes="10" net_port="36525" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
 	<dataset type="CIFAR100">
 		<var name="heterogeneous">False</var>
 		<var name="non_iid_level">0</var>
@@ -13,18 +13,22 @@
 	<localclients learning_rate="0.1" momentum="0.9" weight_decay="1e-7" optimizer="SGD" platform="cuda">10</localclients>
 
 	<method name="FedMIA" type="FedAvgMIA" platform="cuda">
-		<arch type="ResNet18">
+		<arch type="AlexNetMini">
+			<var name="DropeRate">0.0</var>
+			<var name="NumberOfInputChannels">3</var>
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">contributors_percent=100</var>
 	</method>
-	<method name="FedAvgMIA" type="FedAvgMIA" platform="cuda">
-		<arch type="ResNet18">
+	<method name="FedCos" type="FedAvgMIACos" platform="cuda">
+		<arch type="AlexNetMini">
+			<var name="DropeRate">0.0</var>
+			<var name="NumberOfInputChannels">3</var>
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">contributors_percent=100</var>
 	</method>
 	<report save_log="True" log_over_net="192.168.166.143,23456">
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="cos" caption=" " x_axis="round" y_axis="CosII" y_axis_title="Cosine MIA" x_axis_title="# rounds" methods="FedAvgMIA,FedMIA"/>
+		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="MIA" caption=" " x_axis="round" y_axis="MIA" y_axis_title="Cosine MIA" x_axis_title="# rounds" methods="FedCos,FedMIA"/>
 	</report>
 </fedwork_cfg>

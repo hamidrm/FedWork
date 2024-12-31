@@ -13,6 +13,8 @@ class BaseArch(Enum):
     ResNet34 = "ResNet34"
     VGG16 = "VGG16"
     VGG7 = "VGG7"
+    AlexNet = "AlexNet"
+    AlexNetMini = "AlexNetMini"
 
 class ActivationFunction(Enum):
     ReLUFunction = "relu"
@@ -28,6 +30,7 @@ class ActivationFunction(Enum):
     SoftmaxFunction = "softmax"
     Softmax2dFunction = "softmax2d"
     LogSoftmaxFunction = "logsoftmax"
+    
 
 class FWArch:
     def __init__(self, base_arch: BaseArch):
@@ -70,6 +73,9 @@ class FWArch:
                 self.variables_value[parameter_name] = parameter_value
             elif self.variables_type[parameter_name] == "integer":
                 parameter_value = int(parameter_value)
+                self.variables_value[parameter_name] = parameter_value
+            elif self.variables_type[parameter_name] == "float":
+                parameter_value = float(parameter_value)
                 self.variables_value[parameter_name] = parameter_value
             elif self.variables_type[parameter_name] == "act_fn":
                 if not any(parameter_value.value == item.value for item in ActivationFunction):
