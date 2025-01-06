@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import torch.nn.functional as F
 from opacus import PrivacyEngine
 from torch.distributions.normal import Normal
@@ -6,8 +7,7 @@ from torch.distributions.normal import Normal
 class MIACommon:
     @staticmethod
     def calculate_auc_metrics(val_scores, train_scores):
-        import torch
-        import numpy as np
+        
 
         # Labels and scores concatenation
         labels = torch.cat([torch.zeros_like(val_scores), torch.ones_like(train_scores)])

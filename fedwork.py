@@ -158,7 +158,8 @@ class fedwork:
         return instance
 
     def run(self, config_text):
-
+        #TODO-make it configurable through xml config
+        torch.manual_seed(0)
         if not os.path.exists(const.OUTPUT_DIR):
             os.mkdir(const.OUTPUT_DIR)
 
@@ -337,7 +338,7 @@ class fedwork:
                 
             msg = arch.Build()
 
-            if msg is not '':
+            if msg != '':
                 util.logger.log_error(f"Model Architecture Error: '{msg}'")
                 break
         
@@ -405,7 +406,10 @@ class fedwork:
                         else:
                             method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
                         
-                        new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform)
+                        dm = {}
+                        dm["type"] = "MixUp"
+                        dm["alpha"] = 0.5
+                        new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform, dm)
                         self.local_clients.append(new_client)
 
             server.start_training()

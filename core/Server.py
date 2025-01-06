@@ -143,6 +143,12 @@ class Server:
     
     def start_training(self):
         logger.log_debug(f"Broadcasting start training command...")
+
+        time.sleep(0.5)
+        # Share Global Model among clients before start round
+        self.update_clients()
+
+        # Start training procedure
         self.fl_method.start_training()
         if not self.method_is_processing_lock.locked():
             self.method_is_processing_lock.acquire()

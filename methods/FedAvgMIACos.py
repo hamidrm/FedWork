@@ -59,6 +59,7 @@ class FedAvgMIACos(FederatedLearningClass):
         for key in global_model.keys():
             torch_list_weights = torch.stack([clients_models[i][key].float() for i in range(len(clients_models))],0)
             global_model[key] = torch_list_weights.mean(0)
+    
         self.round_num += 1
 
         if self.round_num % 10 == 0:
@@ -85,9 +86,10 @@ class FedAvgMIACos(FederatedLearningClass):
             # self.fedmia_attack.execute(shadow_models, target_model, global_model_clone, self.platform, self.lr)
             # res = self.fedmia_attack.get_last_auc_metrics()
 
-            logger.log_normal(f"Cos Attack on {self.round_num} epochs: {res}, model: {target_model_name}")
+            res_total = self.cos_mia.get_auc_metrics(self.platform)
+            logger.log_normal(f"FedMIA Attack on round {self.round_num}: {res}, model: {target_model_name}, cumulative: {res_total}")
             profiler.save_variable("MIA", res["tprs"]["0.01"], self.round_num - 1)
-
+            profiler.save_variable("MIA_CUMUL", res_total["tprs"]["0.01"], self.round_num - 1)
 
     def start_training(self):
         logger.log_normal(f"===================================================")

@@ -7,10 +7,11 @@ from utils.consts import *
 from core.FederatedLearningClass import *
 from core.ClientComm import *
 from utils.logger import *
+from utils.security.DataManipulation import *
 import copy
 
 class Client:
-    def __init__(self, name, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, method: FederatedLearningClass,executer = "cpu"):
+    def __init__(self, name, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, method: FederatedLearningClass,executer = "cpu", data_manipulation = None):
         
         self.client_model = model
         self.global_model = copy.deepcopy(model)
@@ -36,6 +37,15 @@ class Client:
         self.periodic_training_gamma = 0
         self.lr = hyperparameters.learning_rate
         self.is_training_lock = threading.Lock()
+        self.data_manipulation_status = False
+        self.data_manipulation = data_manipulation
+        if data_manipulation is not None:
+            if data_manipulation["type"] == "MixUp":
+                self.mixup_dm = MixUpDefense(data_manipulation["alpha"])
+                self.data_manipulation_status = True
+            elif data_manipulation["type"] == "InstaHide":
+                self.instahide_dm = InstaHideDataObfuscator(train_ds, None, data_manipulation["num_of_mix"], data_manipulation["max_weight"])
+                self.data_manipulation_status = True
         self.client_comm = ClientComm(name, ip_addr.get_ip(), ip_addr.get_port(), self.__client_evt_cb)
         logger.log_debug(f"[{name}]: Initialization done.")
 
@@ -129,9 +139,12 @@ class Client:
             client_train_dict["lr"] = self.lr
             client_train_dict["global_model_state"] = self.global_model.state_dict()
             for inputs, labels in self.dataset:
-
+                
                 inputs = inputs.to(self.executer)
                 labels = labels.to(self.executer)
+
+                if self.data_manipulation and self.data_manipulation["type"] == "MixUp":
+                    inputs, labels_actual, labels, _ = self.mixup_dm.get_data(inputs, labels)
 
                 client_train_dict["inputs"] = inputs
                 client_train_dict["labels"] = labels
@@ -145,14 +158,26 @@ class Client:
                 else:
                     self.client_optimizer.zero_grad()
                     outputs = self.client_model(inputs)
-                    _, preds = torch.max(outputs, 1)
-                    loss = self.criterion(outputs, labels)
+
+                    if self.data_manipulation and self.data_manipulation["type"] == "MixUp":
+                        loss = self.mixup_dm.criterion(self.criterion, outputs, labels_actual, labels)
+                        
+                    else:
+                        _, preds = torch.max(outputs, 1)
+                        loss = self.criterion(outputs, labels)
+
+                        
+                        
                     loss.backward()
                     self.client_optimizer.step()
-
                     # statistics
+                    if self.data_manipulation_status and self.data_manipulation["type"] == "MixUp":
+                        running_corrects += self.mixup_dm.correctness(outputs, labels_actual, labels)
+                    else:
+                        running_corrects += torch.sum(preds == labels.data)
                     running_loss += loss.item() * inputs.size(0)
-                    running_corrects += torch.sum(preds == labels.data)
+                    
+
 
             model = self.method.train_after_optimization(client_train_dict, epoch)
             

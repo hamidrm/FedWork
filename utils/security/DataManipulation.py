@@ -4,20 +4,21 @@ import torch
 
 class MixUpDefense:
     def __init__(self, alpha) -> None:
-        if alpha > 0:
-            self.mixup_ratio = np.random.beta(alpha, alpha)
-        else:
-            self.mixup_ratio = 1.0
+        self.alpha = alpha
+        self.mixup_ratio = 0
 
     def get_data(self, inputs, targets):
+        if self.alpha > 0:
+            self.mixup_ratio = np.random.beta(self.alpha, self.alpha)
+        else:
+            self.mixup_ratio = 1.0
+    
         batch_size = inputs.size(0)
         shuffled_indices = torch.randperm(batch_size)
 
         mixed_inputs = self.mixup_ratio * inputs + (1 - self.mixup_ratio) * inputs[shuffled_indices, :]
 
-        mixed_targets = self.mixup_ratio * targets + (1 - self.mixup_ratio) * targets[shuffled_indices]
-        
-        return mixed_inputs, mixed_targets, targets[shuffled_indices], self.mixup_ratio
+        return mixed_inputs, targets, targets[shuffled_indices], self.mixup_ratio
 
     def criterion(self, criterion_fn, pred, y_actual, y_mixed):
         return self.mixup_ratio * criterion_fn(pred, y_actual) + (1 - self.mixup_ratio) * criterion_fn(pred, y_mixed)
@@ -26,7 +27,7 @@ class MixUpDefense:
         _, predicted = torch.max(pred, 1)
         correct_a = (predicted == y_actual).sum().item()
         correct_b = (predicted == y_mixed).sum().item()
-        return self.mixup_ratio * correct_a + (1 - self.mixup_ratio) * correct_b
+        return torch.tensor(self.mixup_ratio * correct_a + (1 - self.mixup_ratio) * correct_b)
 
 class InstaHideDataObfuscator:
     def __init__(self, private_loader, public_loader=None, num_mix=3, max_weight=0.7):
