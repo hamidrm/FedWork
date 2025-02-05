@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import torch
 
 class FederatedLearningClass(ABC):
     learning_rate = 0.0001
@@ -53,6 +54,16 @@ class FederatedLearningClass(ABC):
     
     def train_after_optimization(self, client_train_dict : dict, epoch_num):
         return None
+    
+    def client_training_get_data(self, inputs, labels):
+        return inputs, labels
+
+    def client_training_correctness(self, outputs, labels):
+        _, preds = torch.max(outputs, 1)
+        return torch.sum(preds == labels.data)
+    
+    def client_training_criterion(self, criterion_fn, outputs, labels):
+        return criterion_fn(outputs, labels)
     
     def set_hyperparameters(self, learning_rate : float, momentum : float, weight_decay : float):
         self.learning_rate = learning_rate

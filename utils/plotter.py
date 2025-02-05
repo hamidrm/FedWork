@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
-
+import numpy as np
+import torch
 
 class Plotter:
 
@@ -62,5 +63,22 @@ class Plotter:
         if markers is not None:
             if len(markers) > style_index:
                 m = markers[style_index]
-         
+                
+
+        # Convert x and y element-wise to ensure they are NumPy arrays
+        def convert_to_numpy(data):
+            if isinstance(data, torch.Tensor):  # Handle tensor directly
+                if data.is_cuda:
+                    data = data.cpu()  # Move to CPU
+                return data.detach().numpy()  # Convert to NumPy
+            elif isinstance(data, (list, tuple)):  # Handle list or tuple recursively
+                return np.array([convert_to_numpy(item) for item in data])
+            return np.asarray(data)  # Fallback for other types
+
+        # Ensure x and y are fully converted
+        x = convert_to_numpy(x)
+        y = convert_to_numpy(y)
+
+
         plt.plot(x, y, label=label, color=c, linestyle=ls, linewidth=lw, marker=m)
+

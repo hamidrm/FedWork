@@ -14,7 +14,7 @@ import dataset.dataset as DS
 from core.Server import *
 import torch.optim as optim
 from utils.plotter import Plotter
-from methods.FedAvgMIA import FedAvgMIA
+from methods.FedLA import FedLA
 
 class fedwork:
     def __init__(self):
@@ -409,7 +409,7 @@ class fedwork:
                         dm = {}
                         dm["type"] = "MixUp"
                         dm["alpha"] = 0.5
-                        new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform, dm)
+                        new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform, None)
                         self.local_clients.append(new_client)
 
             server.start_training()

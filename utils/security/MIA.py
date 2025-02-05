@@ -8,7 +8,6 @@ class MIACommon:
     @staticmethod
     def calculate_auc_metrics(val_scores, train_scores):
         
-
         # Labels and scores concatenation
         labels = torch.cat([torch.zeros_like(val_scores), torch.ones_like(train_scores)])
         scores = torch.cat([val_scores, train_scores])
@@ -52,40 +51,7 @@ class MIACommon:
             "log_auc": log_auc,
             "tprs": tprs_at_thresholds
         }
-    @staticmethod
-    def compute_batch_gradients(data_loader, model, loss_fn, device):
-        model.train()
-        per_sample_gradients = []
-
-        for x, y in data_loader:
-            x, y = x.to(device), y.to(device)
-            model.zero_grad()  # Zero the gradients
-
-            # Forward pass
-            outputs = model(x)
-            loss = loss_fn(outputs, y)
-
-            # Backward pass
-            loss.backward()
-
-            # Collect per-sample gradients
-            batch_gradients = []
-            for param in model.parameters():
-                if hasattr(param, "grad_sample") and param.grad_sample is not None:
-                    # Flatten gradients per sample
-                    batch_gradients.append(param.grad_sample.view(param.grad_sample.size(0), -1).cpu())
-
-            if batch_gradients:  # Concatenate all parameters' gradients for each sample
-                per_sample_gradients.append(torch.cat(batch_gradients, dim=1))
-
-            # Clear Opacus' gradient storage to avoid memory issues
-            model.zero_grad()
-
-        if per_sample_gradients:
-            return torch.cat(per_sample_gradients, dim=0)
-        else:
-            return None
-
+   
     @staticmethod
     def evaluate_model_on_experimental_data(data_loader, model, loss_fn, optimizer, device, score_function):
         # Move model to the specified device
@@ -134,6 +100,8 @@ class MIACommon:
                     grad_diff.append(param_diff.view(-1))  # Flatten differences
 
         return torch.cat(grad_diff) if grad_diff else torch.tensor([], device=device)
+    
+
 class CosMIA:
     def __init__(self, train_data_loader, validation_data_loader, optimizer, loss_fn) -> None:
         self.train_data_loader = train_data_loader

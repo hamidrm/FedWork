@@ -8,7 +8,7 @@
             "program": "${workspaceFolder}/fedwork.py",
             "console": "integratedTerminal",
             "args": [
-                "config_fedavg_miad_mnist.xml"
+                "config_fedla.xml"
             ]
         }
     ]

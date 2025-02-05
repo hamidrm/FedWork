@@ -1,6 +1,7 @@
+from collections import defaultdict
 import numpy as np
 import torch
-
+from utils.logger import *
 
 class MixUpDefense:
     def __init__(self, alpha) -> None:
@@ -75,3 +76,51 @@ class InstaHideDataObfuscator:
 
         obfuscated_inputs, obfuscated_labels = self.apply_instahide(inputs, targets.float(), public_data)
         return obfuscated_inputs, obfuscated_labels
+    
+class FedLADefeat:
+    def __init__(self, contribution_ratio):
+        self.contribution_ratio = contribution_ratio
+
+    def build_packet(self, model):
+        layers = {}
+        layer_names = set()
+        probabilities = {}
+        parameters_number = {}
+        total_parameters_number = 0
+        # Assign random probabilities to layer names
+        for key in model.keys():
+            layer_name = ".".join(key.rsplit('.', 1)[:-1])
+
+            if layer_name not in parameters_number.keys():
+                parameters_number[layer_name] = 0
+
+            total_parameters_number += len(model[key])
+            parameters_number[layer_name] += len(model[key])
+            if layer_name not in layer_names:
+                layer_names.add(layer_name)
+                
+                probabilities[layer_name] = torch.rand(1).item()
+
+        # Filter layers based on contribution_ratio
+        for key, value in model.items():
+            layer_name = ".".join(key.rsplit('.', 1)[:-1])
+            layer_weight = (parameters_number[layer_name] / total_parameters_number)
+            if probabilities[layer_name]  < (self.contribution_ratio):
+                layers[key] = value
+        
+        # Return the filtered layers
+        return layers
+
+    def aggregate(self, partial_models, global_model):
+        global_model_list = defaultdict(list)  # Use defaultdict for automatic initialization
+
+        # Collect parameters by key
+        for partial_model in partial_models:
+            for key, value in partial_model.items():
+                global_model_list[key].append(value)
+
+        # Aggregate by averaging tensors
+        for key in global_model_list.keys():
+            global_model[key] = torch.mean(torch.stack(global_model_list[key]), dim=0)
+
+        return

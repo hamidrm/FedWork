@@ -143,8 +143,7 @@ class Client:
                 inputs = inputs.to(self.executer)
                 labels = labels.to(self.executer)
 
-                if self.data_manipulation and self.data_manipulation["type"] == "MixUp":
-                    inputs, labels_actual, labels, _ = self.mixup_dm.get_data(inputs, labels)
+                inputs, labels = self.method.client_training_get_data(inputs, labels)
 
                 client_train_dict["inputs"] = inputs
                 client_train_dict["labels"] = labels
@@ -159,22 +158,12 @@ class Client:
                     self.client_optimizer.zero_grad()
                     outputs = self.client_model(inputs)
 
-                    if self.data_manipulation and self.data_manipulation["type"] == "MixUp":
-                        loss = self.mixup_dm.criterion(self.criterion, outputs, labels_actual, labels)
-                        
-                    else:
-                        _, preds = torch.max(outputs, 1)
-                        loss = self.criterion(outputs, labels)
-
-                        
-                        
+                    loss = self.method.client_training_criterion(self.criterion, outputs, labels)
                     loss.backward()
                     self.client_optimizer.step()
+
                     # statistics
-                    if self.data_manipulation_status and self.data_manipulation["type"] == "MixUp":
-                        running_corrects += self.mixup_dm.correctness(outputs, labels_actual, labels)
-                    else:
-                        running_corrects += torch.sum(preds == labels.data)
+                    running_corrects += self.method.client_training_correctness(outputs, labels)
                     running_loss += loss.item() * inputs.size(0)
                     
 

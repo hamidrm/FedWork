@@ -1,0 +1,44 @@
+<fedwork_cfg name="fedavg_miad" num_of_nodes="10" net_port="36525" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
+	<dataset type="CIFAR100">
+		<var name="heterogeneous">False</var>
+		<var name="non_iid_level">0</var>
+		<var name="train_batch_size">100</var>
+		<var name="test_batch_size">100</var>
+		<var name="num_workers">0</var>
+		<var name="save_graph">True</var>
+		<var name="enclosed_info">True</var>
+		<var name="dirichlet">False</var>
+	</dataset>
+
+	<localclients learning_rate="0.1" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda">10</localclients>
+
+	<method name="FedLA_New" type="FedLA" platform="cuda">
+		<arch type="AlexNetMini">
+			<var name="DropeRate">0.0</var>
+			<var name="NumberOfInputChannels">3</var>
+		</arch>
+		<var name="epochs_num">1</var>
+		<var name="args">contributors_percent=100,lcr=0.8</var>
+	</method>
+	<method name="FedMIA_New" type="FedAvgMIA" platform="cuda">
+		<arch type="AlexNetMini">
+			<var name="DropeRate">0.0</var>
+			<var name="NumberOfInputChannels">3</var>
+		</arch>
+		<var name="epochs_num">1</var>
+		<var name="args">contributors_percent=100</var>
+	</method>
+	<method name="FedMIAMixUp_New" type="FedAvgMIA" platform="cuda">
+		<arch type="AlexNetMini">
+			<var name="DropeRate">0.0</var>
+			<var name="NumberOfInputChannels">3</var>
+		</arch>
+		<var name="epochs_num">1</var>
+		<var name="args">contributors_percent=100,mixup_alpha=0.5</var>
+	</method>
+	<report save_log="True" log_over_net="192.168.166.143,23456">
+		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="MIA_TPR" caption=" " x_axis="round" y_axis="MIA_CUMUL" y_axis_title="TPR@FPR1%" x_axis_title="# rounds" methods="FedMIA_New,FedMIAMixUp_New,FedLA_New" labels="FedMIA,FedMIA(MixUp),FedMIA(FedLA 80%)"/>
+		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="Accuracy" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# rounds" methods="FedMIA_New,FedMIAMixUp_New,FedLA_New" labels="Without Defenses,MixUp,FedLA 80%"/>
+		<fig style="style=bmh;linewidths=1,1,1,1,1,1;" name="Link" caption=" " x_axis="round" y_axis="ServerDataRecvBytes" methods="FedMIA_New,FedLA_New" labels="FedAvg,FedLA 80%"/>
+</report>
+</fedwork_cfg>
