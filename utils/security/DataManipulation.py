@@ -2,6 +2,7 @@ from collections import defaultdict
 import numpy as np
 import torch
 from utils.logger import *
+import torch.nn.functional as F
 
 class MixUpDefense:
     def __init__(self, alpha) -> None:
@@ -81,31 +82,49 @@ class FedLADefeat:
     def __init__(self, contribution_ratio):
         self.contribution_ratio = contribution_ratio
 
-    def build_packet(self, model):
+    def build_packet(self, model, global_model):
         layers = {}
         layer_names = set()
         probabilities = {}
-        parameters_number = {}
-        total_parameters_number = 0
+
+        layers_data_trained_model = {}
+        layers_data_global_model = {}
+        cosim_dict = {}
+
+        total_cosim = 0
         # Assign random probabilities to layer names
         for key in model.keys():
             layer_name = ".".join(key.rsplit('.', 1)[:-1])
 
-            if layer_name not in parameters_number.keys():
-                parameters_number[layer_name] = 0
+            if layer_name not in layers_data_global_model.keys():
+                layers_data_global_model[layer_name] = []
+                layers_data_trained_model[layer_name] = []
+                
 
-            total_parameters_number += len(model[key])
-            parameters_number[layer_name] += len(model[key])
+            layers_data_global_model[layer_name].append(global_model[key].flatten())
+            layers_data_trained_model[layer_name].append(model[key].flatten())
+
+
+
             if layer_name not in layer_names:
                 layer_names.add(layer_name)
                 
                 probabilities[layer_name] = torch.rand(1).item()
 
+        for layer in layers_data_global_model.keys():
+            layers_data_global_model[layer] = torch.cat(layers_data_global_model[layer], dim=0)
+            layers_data_trained_model[layer] = torch.cat(layers_data_trained_model[layer], dim=0)
+            cosim_dict[layer] = (F.cosine_similarity(layers_data_global_model[layer], layers_data_trained_model[layer], dim=0) + 1) / 2.0
+            total_cosim = total_cosim + cosim_dict[layer]
+
+
         # Filter layers based on contribution_ratio
         for key, value in model.items():
             layer_name = ".".join(key.rsplit('.', 1)[:-1])
-            layer_weight = (parameters_number[layer_name] / total_parameters_number)
-            if probabilities[layer_name]  < (self.contribution_ratio):
+
+            alpha = 200.0
+            m = torch.exp(alpha * (cosim_dict[layer]-1))
+            if (probabilities[layer_name] * m)  < (self.contribution_ratio):
                 layers[key] = value
         
         # Return the filtered layers

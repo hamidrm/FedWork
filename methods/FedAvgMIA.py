@@ -60,10 +60,12 @@ class FedAvgMIA(FederatedLearningClass):
         self.fedmia_attack = FedMIA(dataset_loader_train, dataset_loader_validation, torch.optim.SGD, nn.CrossEntropyLoss)
 
     def aggregate(self, clients_models, global_model, global_model_obj, clients_id):
-
+        fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
+        logger.log_debug(f"----- {fedavg_fraction}")
         for key in global_model.keys():
-            torch_list_weights = torch.stack([clients_models[i][key].float() for i in range(len(clients_models))],0)
-            global_model[key] = torch_list_weights.mean(0)
+            torch_list_weights = torch.stack([clients_models[i][key].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
+            global_model[key] = torch_list_weights.sum(0)
+
         self.round_num += 1
         
         if self.round_num % 10 == 0:

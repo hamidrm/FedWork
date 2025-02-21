@@ -70,6 +70,7 @@ class fedwork:
         vars = dataset_cfg["var"]
         heterogeneous = self.get_var(vars, "heterogeneous", bool, False)
         non_iid_level = self.get_var(vars, "non_iid_level", float, 0.5)
+        non_iid_alpha = self.get_var(vars, "alpha", float, sys.float_info.min)
         train_batch_size = self.get_var(vars, "train_batch_size", int, 128)
         test_batch_size = self.get_var(vars, "test_batch_size", int, 128)
         num_workers = self.get_var(vars, "num_workers", int, 1)
@@ -77,6 +78,8 @@ class fedwork:
         enclose_info = self.get_var(vars, "enclosed_info", bool, False)
         use_dirichlet = self.get_var(vars, "dirichlet", bool, False)
 
+        if non_iid_alpha != sys.float_info.min:
+            non_iid_level = non_iid_alpha
         dataset_train_list, dataset_test = DS.create_datasets(num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level, train_batch_size, test_batch_size, use_dirichlet, num_workers, save_graph, enclose_info, dir_path)
 
 

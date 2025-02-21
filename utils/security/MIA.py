@@ -3,8 +3,24 @@ import numpy as np
 import torch.nn.functional as F
 from opacus import PrivacyEngine
 from torch.distributions.normal import Normal
+from utils.logger import *
 
 class MIACommon:
+    @staticmethod
+    def filter_mean_var_tensor(tensor):
+        filtered_tensor_mean=torch.zeros_like(tensor[:,0])
+        filtered_tensor_var=torch.zeros_like(tensor[:,0])
+
+        for i in range(tensor.shape[0]):
+            mean = tensor[i][:].mean(dim=0)
+            std = tensor[i][:].std(dim=0)
+            threshold = mean + 3 * std
+
+            filtered_tensor_mean[i] = torch.mean(tensor[i][tensor[i][:] < threshold], dim=0)
+            filtered_tensor_var[i] = torch.var(tensor[i][tensor[i][:] < threshold], dim=0) + 1e-8
+
+        return filtered_tensor_mean, filtered_tensor_var
+
     @staticmethod
     def calculate_auc_metrics(val_scores, train_scores):
         
@@ -25,7 +41,7 @@ class MIACommon:
         tpr = tps / tps[-1]
         fpr = fps / fps[-1]
 
-        # Calculate AUC using trapezoidal rule
+        # Calculate 10AUC using trapezoidal rule
         auc = np.trapz(tpr, fpr)
 
         # Log-space AUC calculation
@@ -295,17 +311,17 @@ class FedMIA:
         train_scores_target = torch.stack([t[1].squeeze() for t in train_scores])
         validation_scores_target = torch.stack([t[1].squeeze() for t in validation_scores])
 
-        mean_train = torch.mean(train_scores_shadows, dim=1)
-        variance_train = torch.var(train_scores_shadows, dim=1) + 1e-8
+        mean_train,variance_train = MIACommon.filter_mean_var_tensor(train_scores_shadows)
+        mean_validation,variance_validation = MIACommon.filter_mean_var_tensor(validation_scores_shadows)
 
+
+        logger.log_debug(f">>>>>>>>>>>>>>>>>>> {mean_train} {variance_train}")
         normal_dist_train = Normal(mean_train, torch.sqrt(variance_train))
-        fedmia_score_train = 1 - normal_dist_train.cdf(train_scores_target)
+        fedmia_score_train = normal_dist_train.cdf(train_scores_target)
 
-        mean_validation = torch.mean(validation_scores_shadows, dim=1)
-        variance_validation = torch.var(validation_scores_shadows, dim=1) + 1e-8
-
+        logger.log_debug(f">>>>>>>>>>>>>>>>>>> {mean_validation} {variance_validation}")
         normal_dist_validation = Normal(mean_validation, torch.sqrt(variance_validation))
-        fedmia_score_validation = 1 - normal_dist_validation.cdf(validation_scores_target)
+        fedmia_score_validation = normal_dist_validation.cdf(validation_scores_target)
 
         self.scores.append((fedmia_score_validation, fedmia_score_train))
 

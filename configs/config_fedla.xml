@@ -12,15 +12,15 @@
 
 	<localclients learning_rate="0.1" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda">10</localclients>
 
-	<method name="FedLA_New" type="FedLA" platform="cuda">
+	<method name="FedLA_New_Cosim_20p" type="FedLA" platform="cuda">
 		<arch type="AlexNetMini">
 			<var name="DropeRate">0.0</var>
 			<var name="NumberOfInputChannels">3</var>
 		</arch>
 		<var name="epochs_num">1</var>
-		<var name="args">contributors_percent=100,lcr=0.8</var>
+		<var name="args">contributors_percent=100,lcr=0.1</var>
 	</method>
-	<method name="FedMIA_New" type="FedAvgMIA" platform="cuda">
+	<method name="FedMIA_New_Cosim_20p" type="FedAvgMIA" platform="cuda">
 		<arch type="AlexNetMini">
 			<var name="DropeRate">0.0</var>
 			<var name="NumberOfInputChannels">3</var>
@@ -28,7 +28,7 @@
 		<var name="epochs_num">1</var>
 		<var name="args">contributors_percent=100</var>
 	</method>
-	<method name="FedMIAMixUp_New" type="FedAvgMIA" platform="cuda">
+	<method name="FedMIAMixUp_New_Cosim_20p" type="FedAvgMIA" platform="cuda">
 		<arch type="AlexNetMini">
 			<var name="DropeRate">0.0</var>
 			<var name="NumberOfInputChannels">3</var>
@@ -37,8 +37,8 @@
 		<var name="args">contributors_percent=100,mixup_alpha=0.5</var>
 	</method>
 	<report save_log="True" log_over_net="192.168.166.143,23456">
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="MIA_TPR" caption=" " x_axis="round" y_axis="MIA_CUMUL" y_axis_title="TPR@FPR1%" x_axis_title="# rounds" methods="FedMIA_New,FedMIAMixUp_New,FedLA_New" labels="FedMIA,FedMIA(MixUp),FedMIA(FedLA 80%)"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="Accuracy" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# rounds" methods="FedMIA_New,FedMIAMixUp_New,FedLA_New" labels="Without Defenses,MixUp,FedLA 80%"/>
-		<fig style="style=bmh;linewidths=1,1,1,1,1,1;" name="Link" caption=" " x_axis="round" y_axis="ServerDataRecvBytes" methods="FedMIA_New,FedLA_New" labels="FedAvg,FedLA 80%"/>
+		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="MIA_TPR_20p" caption=" " x_axis="round" y_axis="MIA_CUMUL" y_axis_title="TPR@FPR1%" x_axis_title="# rounds" methods="FedMIA_New_Cosim_20p,FedMIAMixUp_New_Cosim_20p,FedLA_New_Cosim_20p" labels="FedMIA,FedMIA(MixUp),FedMIA(FedLA 20%)"/>
+		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="Accuracy_20p" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# rounds" methods="FedMIA_New_Cosim_20p,FedMIAMixUp_New_Cosim_20p,FedLA_New_Cosim_20p" labels="Without Defenses,MixUp,FedLA 20%"/>
+		<fig style="style=bmh;linewidths=1,1,1,1,1,1;" name="Link_20p" caption=" " x_axis="round" y_axis="ServerDataRecvBytes" methods="FedMIA_New_Cosim_20p,FedLA_New_Cosim_20p" labels="FedAvg,FedLA 20%"/>
 </report>
 </fedwork_cfg>

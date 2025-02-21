@@ -7,6 +7,13 @@ import copy
 
 class MIACommon:
     @staticmethod
+    def filter_tensor(tensor):
+        mean = tensor.mean(dim=0)
+        std = tensor.std(dim=0)
+        threshold = mean + 3 * std
+        return tensor[tensor < threshold]
+
+    @staticmethod
     def calculate_auc_metrics(val_scores, train_scores):
         
 
@@ -255,17 +262,23 @@ class FedMIA:
         else:
             return
         
+
+        #train_scores_shadows = MIACommon.filter_tensor(train_scores_shadows)
+        #validation_scores_shadows = MIACommon.filter_tensor(validation_scores_shadows)
+
+        
+        
         mean_train = torch.mean(train_scores_shadows, dim=1)
         variance_train = torch.var(train_scores_shadows, dim=1) + 1e-8
 
         normal_dist_train = Normal(mean_train, torch.sqrt(variance_train))
-        fedmia_score_train = 1 - normal_dist_train.cdf(train_scores_target)
+        fedmia_score_train = normal_dist_train.cdf(train_scores_target)
 
         mean_validation = torch.mean(validation_scores_shadows, dim=1)
         variance_validation = torch.var(validation_scores_shadows, dim=1) + 1e-8
 
         normal_dist_validation = Normal(mean_validation, torch.sqrt(variance_validation))
-        fedmia_score_validation = 1 - normal_dist_validation.cdf(validation_scores_target)
+        fedmia_score_validation = normal_dist_validation.cdf(validation_scores_target)
 
         self.scores.append((fedmia_score_validation, fedmia_score_train))
 

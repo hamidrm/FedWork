@@ -116,7 +116,7 @@ class FedLA(FederatedLearningClass):
         return all_clients
 
     def pack_client_model(self, raw_model, global_model):
-        new_packet = self.fla.build_packet(raw_model)
+        new_packet = self.fla.build_packet(raw_model, global_model)
         return new_packet
 
     def unpack_client_model(self, packed_model):

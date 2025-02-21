@@ -11,8 +11,8 @@ import utils.consts as consts
 from collections import Counter
 import numpy as np
 
-def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_iid_level=0.1, train_batch_size=64, test_batch_size=64, use_dirichlet=False, num_workers=8, save_graph=True, add_info_to_figure=False, path=None):
-    logger.log_info(f'Dirichlet: {use_dirichlet}, Heterogeneous: {heterogeneous}, Non-i.i.d Level: {non_iid_level}, Train Batch Size: {train_batch_size}, Test Batch Size: {test_batch_size}')
+def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_iid_level_alpha=0.1, train_batch_size=64, test_batch_size=64, use_dirichlet=False, num_workers=8, save_graph=True, add_info_to_figure=False, path=None):
+    logger.log_info(f'Dirichlet: {use_dirichlet}, Heterogeneous: {heterogeneous}, Non-i.i.d Level: {non_iid_level_alpha}, Train Batch Size: {train_batch_size}, Test Batch Size: {test_batch_size}')
     classes = []
     if ds_type == "MNIST":
         transform_train = transforms.Compose([
@@ -75,7 +75,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
     train_groups_eq_size = train_total_dataset_size // train_ds_num
     client_distributions = []
 
-    if non_iid_level == 0 and not use_dirichlet:
+    if non_iid_level_alpha == 0 and not use_dirichlet:
         # IID datasets
         # Generate and shuffle all indices
         all_indices = list(range(train_total_dataset_size))
@@ -108,53 +108,61 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
 
         # Compute Dirichlet distribution for non-iid partitioning if enabled
         if use_dirichlet:
-            dirichlet_alpha = non_iid_level
+            dirichlet_alpha = non_iid_level_alpha
             # For each client, sample proportions for each class from a Dirichlet distribution
-            class_proportions = np.random.dirichlet([dirichlet_alpha] * train_classes_num, train_ds_num)
+            class_proportions = np.random.dirichlet([dirichlet_alpha] * train_ds_num, train_classes_num)
         else:
             class_proportions = None  # No Dirichlet, proceed with original logic
 
 
-        for _ in range(train_ds_num - 1):
-            group_dataset_len = train_groups_eq_size + (torch.randint(int((non_iid_level / 2.0) * train_groups_eq_size) // -2, int((non_iid_level / 2.0) * train_groups_eq_size) // 2, (1,)).item() if heterogeneous and non_iid_level > 0.0 else 0)
-            train_dataset_subsets_len.append(group_dataset_len)
-            train_total_dataset_size -= group_dataset_len
-        
-        train_dataset_subsets_len.append(train_total_dataset_size)
+            for _ in range(train_ds_num - 1):
+                group_dataset_len = train_groups_eq_size + (torch.randint(int((non_iid_level_alpha / 2.0) * train_groups_eq_size) // -2, int((non_iid_level_alpha / 2.0) * train_groups_eq_size) // 2, (1,)).item() if heterogeneous and non_iid_level_alpha > 0.0 else 0)
+                train_dataset_subsets_len.append(group_dataset_len)
+                train_total_dataset_size -= group_dataset_len
+            
+            train_dataset_subsets_len.append(train_total_dataset_size)
 
-        
-        train_dataset_subsets_expected_len = list(train_dataset_subsets_len)
-        if train_classes_num > train_ds_num:
-            train_groups_labels = [[((train_classes_num // train_ds_num) * i + j) for j in range(train_classes_num // train_ds_num)] for i in range(train_ds_num)]
-        else:
-            train_groups_labels = [[torch.randint(0, train_classes_num, (1,)).item()] for i in range(train_ds_num)]
+            
+            train_dataset_subsets_expected_len = list(train_dataset_subsets_len)
+            if train_classes_num > train_ds_num:
+                train_groups_labels = [[((train_classes_num // train_ds_num) * i + j) for j in range(train_classes_num // train_ds_num)] for i in range(train_ds_num)]
+            else:
+                train_groups_labels = [[torch.randint(0, train_classes_num, (1,)).item()] for i in range(train_ds_num)]
 
-        for label in range(train_classes_num):
-            if any(label in group_labels for group_labels in train_groups_labels) == False:
-                train_groups_labels[torch.randint(0, train_ds_num, (1,)).item()].append(label)
+            for label in range(train_classes_num):
+                if any(label in group_labels for group_labels in train_groups_labels) == False:
+                    train_groups_labels[torch.randint(0, train_ds_num, (1,)).item()].append(label)
 
-        
-        
-        
+        dataset_label_list_ignore = [False] * len(dataset_label_list)
         for subset_index in range(train_ds_num):
             train_group_index_list = []
-
             if use_dirichlet:
                 # Use Dirichlet proportions to assign data to clients
+                
                 for class_index in range(train_classes_num):
-                    class_indices = [i for i, x in enumerate(dataset_label_list) if x == class_index]
-                    class_size = int(class_proportions[subset_index][class_index] * len(class_indices))
-                    
+                    class_indices = [i for i, x in enumerate(dataset_label_list) if (x == class_index) and dataset_label_list_ignore[i] == False]
+                    #if subset_index == (train_ds_num - 1):
+                        #class_size = len(class_indices)
+                    #    pass
+                    #else:
+                    class_size = int(class_proportions[class_index][subset_index] * len(class_indices))
+
+                    if class_size == 0:
+                        continue
                     # Randomly sample indices for this class based on the proportion
                     sampled_indices = np.random.choice(class_indices, class_size, replace=False).tolist()
                     train_group_index_list.extend(sampled_indices)
+
+                    for m in sampled_indices:
+                        dataset_label_list_ignore[m] = True
+
             else:
                 label_len_list = []
                 labels_list_size = len(train_groups_labels[subset_index])
 
                 each_label_standard_size = train_dataset_subsets_len[subset_index] // labels_list_size
                 for label in range(labels_list_size - 1):
-                    label_len = each_label_standard_size + (torch.randint(int((non_iid_level / 2.0) * each_label_standard_size) // -2, int((non_iid_level / 2.0) * each_label_standard_size) // 2, (1,)).item() if non_iid_level > 0.0 else 0)
+                    label_len = each_label_standard_size + (torch.randint(int((non_iid_level_alpha / 2.0) * each_label_standard_size) // -2, int((non_iid_level_alpha / 2.0) * each_label_standard_size) // 2, (1,)).item() if non_iid_level_alpha > 0.0 else 0)
                     label_len_list.append(label_len)
                     train_dataset_subsets_len[subset_index] -= label_len
                 label_len_list.append(train_dataset_subsets_len[subset_index])
@@ -165,18 +173,17 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
                     
                     indices = [index for index, value in enumerate(dataset_label_list) if ((value == label) and ((index not in train_group_index_list) or (torch.rand(1).item() < 0.25)))]
                     
-                    needed_length = int(label_len_list[label_index] * non_iid_level)
+                    needed_length = int(label_len_list[label_index] * non_iid_level_alpha)
                     random_indices = random.sample(range(len(indices)), min(len(indices), needed_length) )
                     needed_indices = [indices[i] for i in random_indices]
 
                     train_group_index_list += needed_indices
 
+                remainded_indices = train_dataset_subsets_expected_len[subset_index] - len(train_group_index_list)
                 
-            remainded_indices = train_dataset_subsets_expected_len[subset_index] - len(train_group_index_list)
-            
-            for _ in range(remainded_indices):
-                rand_index = torch.randint(0, len(dataset_label_list), (1,)).item()
-                train_group_index_list.append(rand_index)
+                for _ in range(remainded_indices):
+                    rand_index = torch.randint(0, len(dataset_label_list), (1,)).item()
+                    train_group_index_list.append(rand_index)
 
 
             if isinstance(train_dataset.targets, list):
@@ -195,7 +202,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
             # Count the occurrences of each class
             class_counts = Counter(client_labels)
             client_distributions.append(class_counts)
-    
+
     test_dataset_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False,  num_workers=num_workers)
 
     if save_graph:
@@ -218,7 +225,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         plt.imshow(normalized_matrix, cmap='gray_r', interpolation='nearest')
 
         if add_info_to_figure:
-            plt.text(len(train_datasets) + 1, len(unique_classes) / 2 , f'{type(train_dataset).__name__} \nHeterogeneous: {heterogeneous}\nNon-i.i.d level: {non_iid_level}\nTrain batch size: {train_batch_size}\nTest batch size: {test_batch_size}', fontsize=8, color='red', rotation=90, va='center', ha='center', bbox=dict(facecolor='white', alpha=0.5))
+            plt.text(len(train_datasets) + 1, len(unique_classes) / 2 , f'{type(train_dataset).__name__} \nHeterogeneous: {heterogeneous}\nNon-i.i.d level: {non_iid_level_alpha}\nTrain batch size: {train_batch_size}\nTest batch size: {test_batch_size}', fontsize=8, color='red', rotation=90, va='center', ha='center', bbox=dict(facecolor='white', alpha=0.5))
         plt.xlim(-1, len(train_datasets))
         plt.ylim(-1, len(unique_classes))
         if path is None:
