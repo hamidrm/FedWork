@@ -8,7 +8,7 @@ from utils.common import Common
 class FedPAQ(FederatedLearningClass):
     def __init__(self, args=()):
         super().__init__()
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
+        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, fl_context, extra_args = args
         num_levels = int(Common.get_param_in_args(extra_args, "num_levels", 16))
         r_percent = int(Common.get_param_in_args(extra_args, "r_percent", 80))
         self.quantizer = QSGDQuantizer(num_levels)
@@ -21,7 +21,7 @@ class FedPAQ(FederatedLearningClass):
     def init_method(self):
         pass
 
-    def aggregate(self, clients_models, global_model):
+    def aggregate(self, clients_models, global_model, global_model_obj, clients_id):
 
         for key in global_model.keys():
             if Common.is_trainable(global_model, key):
@@ -36,10 +36,9 @@ class FedPAQ(FederatedLearningClass):
         logger.log_normal(f"Round {self.server.round_number} is starting...")
         logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
         if self.server.round_number != self.num_of_rounds:
-            self.server.start_round(self.clients_epochs, [100, 200], 0.0001)
+            self.server.start_round(self.clients_epochs)
             return (eval_loss, eval_accuracy)
         else:
-            logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
             return None
 
     def select_clients_to_train(self, all_clients):

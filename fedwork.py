@@ -14,12 +14,13 @@ import dataset.dataset as DS
 from core.Server import *
 import torch.optim as optim
 from utils.plotter import Plotter
-from methods.FedLA import FedLA
+from methods.FedALA import FedALA
 
 class fedwork:
     def __init__(self):
         self.local_clients = []
         self.plotter = Plotter()
+        self.fl_context = {}
         logger().set_log_type(logger_log_type.logger_type_debug.value |
                     logger_log_type.logger_type_error.value |
                     logger_log_type.logger_type_info.value |
@@ -39,7 +40,7 @@ class fedwork:
                 elif desired_item_value.lower() in ['false', '0', 'no']:
                     return False
                 else:
-                    raise ValueError(f"Cannot convert '{desired_item_value}' to bool.")
+                    raise ValueError("Cannot convert the variable to bool.")
             else:
                 return type(desired_item_value)
         except TypeError as e:
@@ -47,7 +48,9 @@ class fedwork:
 
     def create_datasets(self, dataset_cfg, num_of_nodes, output_dir = const.OUTPUT_DIR):
 
-        dir_path = os.path.join(output_dir, f"dataset")
+        dir_path = os.path.join(output_dir, "dataset")
+
+        self.fl_context["dataset_path"] = dir_path
         if os.path.exists(dir_path):
             dataset_train_list = []
             file_counter = 0
@@ -65,6 +68,9 @@ class fedwork:
                     with open(file_path, 'rb') as f:
                         data = f.read()
                         dataset_test = pickle.loads(data)
+
+                    self.fl_context["dataset_train_list"] = dataset_train_list
+                    self.fl_context["dataset_train_test"] = dataset_test
                     return dataset_train_list, dataset_test
 
         vars = dataset_cfg["var"]
@@ -98,6 +104,8 @@ class fedwork:
         with open(file_path, 'wb') as f:
             f.write(data)
 
+        self.fl_context["dataset_train_list"] = dataset_train_list
+        self.fl_context["dataset_train_test"] = dataset_test
         return dataset_train_list, dataset_test
         
     def get_loss_function(self, loss_name):
@@ -161,17 +169,23 @@ class fedwork:
         return instance
 
     def run(self, config_text):
+
+        
+
         #TODO-make it configurable through xml config
         torch.manual_seed(0)
+
         if not os.path.exists(const.OUTPUT_DIR):
             os.mkdir(const.OUTPUT_DIR)
-
+        self.fl_context["config_str"] = config_text
         dict_cfg = xmltodict.parse(config_text)
         fedwork_cfg = dict_cfg.get("fedwork_cfg")
         if fedwork_cfg is None:
             util.logger.log_error("Invalid config file! Tag 'fedwork' tag is not found.")
             return
         
+
+        self.fl_context["config_xml_fedwork"] = fedwork_cfg
         cfg_name = fedwork_cfg.get("@name")
         if cfg_name is None:
             util.logger.log_error("Invalid config file! A specific name have to be assigned to the configuration.")
@@ -186,17 +200,17 @@ class fedwork:
         if dataset_cfg is None:
             util.logger.log_error("Invalid config file! Tag 'dataset' is not found.")
             return
-        
+        self.fl_context["config_xml_dataset"] = dataset_cfg
         methods_cfg = fedwork_cfg.get("method")
         if methods_cfg is None:
             util.logger.log_error("Invalid config file! Tag 'method' is not found.")
             return
-        
+        self.fl_context["config_xml_method"] = methods_cfg
         report_cfg = fedwork_cfg.get("report")
         if report_cfg is None:
             util.logger.log_error("Invalid config file! Tag 'report' is not found.")
             return
-        
+        self.fl_context["config_xml_report"] = report_cfg
         attr_save_log = "@save_log"
         save_log_def = "True"
         save_log = bool(report_cfg[attr_save_log] if attr_save_log in report_cfg.keys() else save_log_def)
@@ -234,12 +248,15 @@ class fedwork:
         ds_num_classes = len(test_dataset.dataset.classes)
 
         num_of_rounds = int(fedwork_cfg["@num_of_rounds"])
-
+        self.fl_context["num_of_rounds"] = num_of_rounds
         # Step 2.
         # For each method, we have to execute federated learning according to corresponding configuration
         probes_bin = {}
         
         methods_cfg = methods_cfg if isinstance(methods_cfg, list) else [methods_cfg]
+        weights = [(float(len(dataloader.dataset)) / float(sum([len(dataloader.dataset) for  dataloader in train_dataset_list]))) for dataloader in train_dataset_list]
+        self.fl_context["dataset_weights"] = weights
+        self.fl_context["methods_list"] = {}
         for method in methods_cfg:
             profiler.reset_profiles()
             attr_method_type = "@type"
@@ -252,8 +269,11 @@ class fedwork:
             method_type = method[attr_method_type]
             method_name = method[attr_method_name]
 
-            probes_data_path = os.path.join(output_path, f"{method_name}_probes_data.data")
+            self.fl_context["methods_list"][method_name] = {}
 
+            self.fl_context["methods_list"][method_name]["type"] = method_type
+            probes_data_path = os.path.join(output_path, f"{method_name}_probes_data.data")
+            self.fl_context["methods_list"][method_name]["output_path"] = probes_data_path
             if os.path.exists(probes_data_path):
                 util.logger.log_info(f"Information for method '{method_name}(type={method_type})' has been found!")
 
@@ -271,6 +291,7 @@ class fedwork:
             method_platform = method[attr_method_platform] if attr_method_platform in method.keys() else attr_method_platform_def
 
             method_num_of_epochs = self.get_var(method["var"], "epochs_num", int, 5)
+            self.fl_context["methods_list"][method_name]["num_of_epochs"] = method_num_of_epochs
             method_args = self.get_var(method["var"], "args", str, "")
 
             method_path = os.path.join("methods", f"{method_type}.py")
@@ -295,6 +316,7 @@ class fedwork:
             
             arch_type = None
             arch_type_str = arch_cfg[attr_arch_type]
+            self.fl_context["methods_list"][method_name]["arch_type"] = arch_type_str
             for _arch_type in BaseArch:
                 if _arch_type.value == arch_type_str:
                     arch_type = _arch_type
@@ -338,7 +360,7 @@ class fedwork:
                     if var_name in vars_list:
                         arch.SetParameter(var_name, var_text)
 
-                
+            self.fl_context["methods_list"][method_name]["arch"] = arch
             msg = arch.Build()
 
             if msg != '':
@@ -348,13 +370,12 @@ class fedwork:
             global_model = arch.CreateModel().to(method_platform)
 
             loss_func = self.get_loss_function(eval_criterion)
-
-            weights = [(float(len(dataloader.dataset)) / float(sum([len(dataloader.dataset) for  dataloader in train_dataset_list]))) for dataloader in train_dataset_list]
-
+            self.fl_context["methods_list"][method_name]["loss_func"] = loss_func
+            self.fl_context["methods_list"][method_name]["platform"] = method_platform
             if method_args == "":
-                method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform))
+                method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, self.fl_context))
             else:
-                method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
+                method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, self.fl_context, method_args))
             
             server = Server(IpAddr(net_ip, net_port), method_obj, test_dataset, global_model, loss_func, method_platform)
 
@@ -372,6 +393,7 @@ class fedwork:
                 momentum = None
                 weight_decay = None
 
+                self.fl_context["methods_list"][method_name]["localclients_xml"] = localclients_cfg
                 if not attr_learning_rate in localclients_cfg.keys():
                     util.logger.log_error(f"In method '{method_type}', architecture '{arch_type_str}', attribute learning_rate is not assigned!")
                     break
@@ -391,11 +413,12 @@ class fedwork:
                     break
 
                 learning_rate = float(localclients_cfg[attr_learning_rate])
-
+                self.fl_context["methods_list"][method_name]["learning_rate"] = learning_rate
                 localclients_num = int(localclients_cfg[localclients_num_key])
+                self.fl_context["methods_list"][method_name]["localclients_num"] = localclients_num
                 client_platform = localclients_cfg[attr_platform]
                 optimizer = self.get_optimizer_class(localclients_cfg[attr_optimizer])
-
+                self.fl_context["methods_list"][method_name]["optimizer"] = optimizer
                 if localclients_num > len(train_dataset_list):
                     util.logger.log_warning(f"Local clients number must not be greater the total nodes number! Local clients number will be assumed {len(train_dataset_list)}")
                     localclients_num = len(train_dataset_list)
@@ -405,9 +428,9 @@ class fedwork:
                     for client_id in range(localclients_num):
                         model = arch.CreateModel().to(method_platform)
                         if method_args == "":
-                            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform))
+                            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, self.fl_context))
                         else:
-                            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, method_args))
+                            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, self.fl_context, method_args))
                         
                         dm = {}
                         dm["type"] = "MixUp"

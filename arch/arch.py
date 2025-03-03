@@ -15,6 +15,7 @@ class BaseArch(Enum):
     VGG7 = "VGG7"
     AlexNet = "AlexNet"
     AlexNetMini = "AlexNetMini"
+    ResNet50 = "ResNet50"
 
 class ActivationFunction(Enum):
     ReLUFunction = "relu"

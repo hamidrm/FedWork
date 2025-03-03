@@ -5,8 +5,10 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 from datetime import datetime
+from dataset import MedMNIST
 from utils.logger import *
 import utils.consts as consts
+
 #from sklearn.manifold import TSNE
 from collections import Counter
 import numpy as np
@@ -68,6 +70,20 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         train_dataset = datasets.FashionMNIST(root='./dataset/data', train=True, transform=transform_train, download=True)
         test_dataset  = datasets.FashionMNIST(root='./dataset/data', train=False, transform=transform_test)
         dataset_label_list = train_dataset.targets.tolist()
+    elif ("-" in ds_type) and ds_type.split("-")[0].lower() == "medmnist":
+        transform_train = transforms.Compose([
+            transforms.ToTensor()
+        ])
+        transform_test = transforms.Compose([
+            transforms.ToTensor()
+        ])
+        train_dataset = MedMNIST.MedMNIST(dataset_name=ds_type.split("-")[1], root='./dataset/data', train=True, transform=transform_train, download=True)
+        test_dataset = MedMNIST.MedMNIST(dataset_name=ds_type.split("-")[1], root='./dataset/data', train=False, transform=transform_test)
+        dataset_label_list = train_dataset.targets.tolist()
+    else:
+        raise ValueError(f"Dataset '{ds_type}' not recognized.")
+    
+
     train_classes_num = len(train_dataset.classes)
     train_datasets = []
     train_dataset_subsets_len = []
@@ -133,30 +149,52 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
                 if any(label in group_labels for group_labels in train_groups_labels) == False:
                     train_groups_labels[torch.randint(0, train_ds_num, (1,)).item()].append(label)
 
-        dataset_label_list_ignore = [False] * len(dataset_label_list)
-        for subset_index in range(train_ds_num):
-            train_group_index_list = []
-            if use_dirichlet:
-                # Use Dirichlet proportions to assign data to clients
-                
-                for class_index in range(train_classes_num):
-                    class_indices = [i for i, x in enumerate(dataset_label_list) if (x == class_index) and dataset_label_list_ignore[i] == False]
-                    #if subset_index == (train_ds_num - 1):
-                        #class_size = len(class_indices)
-                    #    pass
-                    #else:
-                    class_size = int(class_proportions[class_index][subset_index] * len(class_indices))
+        if use_dirichlet:
+            subset_indices_lists = [[] for _ in range(train_ds_num)]
+            for class_index in range(train_classes_num):
+                class_indices = [i for i, lbl in enumerate(dataset_label_list) 
+                                if lbl == class_index]
 
-                    if class_size == 0:
-                        continue
-                    # Randomly sample indices for this class based on the proportion
-                    sampled_indices = np.random.choice(class_indices, class_size, replace=False).tolist()
-                    train_group_index_list.extend(sampled_indices)
+                random.shuffle(class_indices)
 
-                    for m in sampled_indices:
-                        dataset_label_list_ignore[m] = True
+                frac_sizes = class_proportions[class_index] * len(class_indices)
+                sizes = frac_sizes.astype(int) 
+                leftover = len(class_indices) - np.sum(sizes)
 
-            else:
+                sizes[-1] += leftover
+
+                offset = 0
+                for client_id, size in enumerate(sizes):
+                    assigned_indices = class_indices[offset : offset + size]
+                    offset += size
+                    subset_indices_lists[client_id].extend(assigned_indices)
+            train_datasets = []
+            for client_id in range(train_ds_num):
+
+                random.shuffle(subset_indices_lists[client_id])
+
+                # Create a Subset and then a DataLoader
+                dataset_client = Subset(train_dataset, subset_indices_lists[client_id])
+                loader_client = DataLoader(dataset_client,
+                                        batch_size=train_batch_size,
+                                        shuffle=True,
+                                        num_workers=num_workers)
+                train_datasets.append(loader_client)
+
+                assigned_indices = subset_indices_lists[client_id]
+
+                client_labels = [dataset_label_list[i] for i in assigned_indices]
+
+                class_counts = Counter(client_labels)
+                client_distributions.append(class_counts)
+
+                if isinstance(train_dataset.targets, list):
+                    classes.append([train_dataset.targets[i] for i in assigned_indices])
+                else:
+                    classes.append([train_dataset.targets[i].item() for i in assigned_indices])
+        else:
+            for subset_index in range(train_ds_num):
+                train_group_index_list = []
                 label_len_list = []
                 labels_list_size = len(train_groups_labels[subset_index])
 
@@ -186,22 +224,22 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
                     train_group_index_list.append(rand_index)
 
 
-            if isinstance(train_dataset.targets, list):
-                classes.append([train_dataset.targets[i] for i in train_group_index_list])
-            else:
-                classes.append([train_dataset.targets[i].item() for i in train_group_index_list])
+                if isinstance(train_dataset.targets, list):
+                    classes.append([train_dataset.targets[i] for i in train_group_index_list])
+                else:
+                    classes.append([train_dataset.targets[i].item() for i in train_group_index_list])
 
 
-            random.shuffle(train_group_index_list)
-            dataset_client = Subset(train_dataset, train_group_index_list)
-            train_datasets.append(DataLoader(dataset_client, batch_size=train_batch_size,
-                                    shuffle=True, num_workers=num_workers))
-            
-            # Get the targets/labels for the current client
-            client_labels = [train_dataset[i][1] for i in train_group_index_list]
-            # Count the occurrences of each class
-            class_counts = Counter(client_labels)
-            client_distributions.append(class_counts)
+                random.shuffle(train_group_index_list)
+                dataset_client = Subset(train_dataset, train_group_index_list)
+                train_datasets.append(DataLoader(dataset_client, batch_size=train_batch_size,
+                                        shuffle=True, num_workers=num_workers))
+                
+                # Get the targets/labels for the current client
+                client_labels = [train_dataset[i][1] for i in train_group_index_list]
+                # Count the occurrences of each class
+                class_counts = Counter(client_labels)
+                client_distributions.append(class_counts)
 
     test_dataset_loader = DataLoader(test_dataset, batch_size=test_batch_size, shuffle=False,  num_workers=num_workers)
 

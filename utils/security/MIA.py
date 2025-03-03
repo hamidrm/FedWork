@@ -1,3 +1,4 @@
+from sklearn import metrics
 import torch
 import numpy as np
 import torch.nn.functional as F
@@ -7,19 +8,17 @@ from utils.logger import *
 
 class MIACommon:
     @staticmethod
-    def filter_mean_var_tensor(tensor):
-        filtered_tensor_mean=torch.zeros_like(tensor[:,0])
-        filtered_tensor_var=torch.zeros_like(tensor[:,0])
+    def filter_mean_var_tensor(tensor_list):
+        filtered_tensor_mean=torch.zeros(len(tensor_list), device=tensor_list[0].device)
+        filtered_tensor_var=torch.zeros(len(tensor_list), device=tensor_list[0].device)
 
-        for i in range(tensor.shape[0]):
-            mean = tensor[i][:].mean(dim=0)
-            std = tensor[i][:].std(dim=0)
+        for i in range(len(tensor_list)):
+            mean = tensor_list[i].mean(dim=0)
+            std = tensor_list[i].std(dim=0)
             threshold = mean + 3 * std
 
-            filtered_tensor_mean[i] = torch.mean(tensor[i][tensor[i][:] < threshold], dim=0)
-            filtered_tensor_var[i] = torch.var(tensor[i][tensor[i][:] < threshold], dim=0) + 1e-8
-
-        return filtered_tensor_mean, filtered_tensor_var
+            filtered_tensor_mean[i] = torch.mean(tensor_list[i][tensor_list[i][:] < threshold], dim=0)
+            filtered_tensor_var[i] = torch.var(tensor_list[i][tensor_list[i][:] < threshold], dim=0) + 1e-8
 
     @staticmethod
     def calculate_auc_metrics(val_scores, train_scores):
@@ -112,7 +111,7 @@ class MIACommon:
             for (name, param), (_, global_param) in zip(model.named_parameters(), global_model.named_parameters()):
                 if param.requires_grad:
                     # Ensure both tensors are on the same device
-                    param_diff = param.detach().to(device) - global_param.detach().to(device)
+                    param_diff = global_param.detach().to(device) - param.detach().to(device)
                     grad_diff.append(param_diff.view(-1))  # Flatten differences
 
         return torch.cat(grad_diff) if grad_diff else torch.tensor([], device=device)
@@ -306,20 +305,29 @@ class FedMIA:
             self.validation_data_loader, global_model, loss_fn_inst, optimizer_inst, device, self.score_function
         )
 
-        train_scores_shadows = torch.stack([t[0].squeeze() for t in train_scores])
-        validation_scores_shadows = torch.stack([t[0].squeeze() for t in validation_scores])
-        train_scores_target = torch.stack([t[1].squeeze() for t in train_scores])
-        validation_scores_target = torch.stack([t[1].squeeze() for t in validation_scores])
+        train_scores_shadows_list = [t[0].squeeze() for t in train_scores if t != []]
+        validation_scores_shadows_list =[t[0].squeeze() for t in validation_scores if t != []]
+        train_scores_target_list = [t[1].squeeze() for t in train_scores if t != []]
+        validation_scores_target_list = [t[1].squeeze() for t in validation_scores if t != []]
 
-        mean_train,variance_train = MIACommon.filter_mean_var_tensor(train_scores_shadows)
-        mean_validation,variance_validation = MIACommon.filter_mean_var_tensor(validation_scores_shadows)
+        if train_scores_target_list != []:
+            train_scores_target = torch.stack(train_scores_target_list)
+        else:
+            return
+        if validation_scores_target_list != []:
+            validation_scores_target = torch.stack(validation_scores_target_list)
+        else:
+            return
+        
+        mean_train,variance_train = MIACommon.filter_mean_var_tensor(train_scores_shadows_list)
+        mean_validation,variance_validation = MIACommon.filter_mean_var_tensor(validation_scores_shadows_list)
 
 
-        logger.log_debug(f">>>>>>>>>>>>>>>>>>> {mean_train} {variance_train}")
+
         normal_dist_train = Normal(mean_train, torch.sqrt(variance_train))
         fedmia_score_train = normal_dist_train.cdf(train_scores_target)
 
-        logger.log_debug(f">>>>>>>>>>>>>>>>>>> {mean_validation} {variance_validation}")
+
         normal_dist_validation = Normal(mean_validation, torch.sqrt(variance_validation))
         fedmia_score_validation = normal_dist_validation.cdf(validation_scores_target)
 

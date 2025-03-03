@@ -15,7 +15,8 @@ class FedAvgMIACos(FederatedLearningClass):
 
     def __init__(self, args = ()):
         super().__init__()
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
+        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, fl_context, extra_args = args
+        self.fl_context = fl_context
         self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 100))
         self.num_of_nodes_contributor = 0
         self.round_num = 0
@@ -25,8 +26,7 @@ class FedAvgMIACos(FederatedLearningClass):
 
     def get_data_loaders(self):
 
-        dir_path = os.path.join("output", "fedavg_miad")
-        dir_path = os.path.join(dir_path, "dataset")
+        dir_path = self.fl_context["dataset_path"]
 
         file_path_train      = os.path.join(dir_path, f"dataset_node_0.ds")
         file_path_validation = os.path.join(dir_path, f"dataset_node_1.ds")

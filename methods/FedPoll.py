@@ -9,7 +9,7 @@ class FedPoll(FederatedLearningClass):
 
     def __init__(self, args = ()):
         super().__init__()
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
+        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, fl_context, extra_args = args
         
         self.client_side_r_tensors = []
         
@@ -45,7 +45,7 @@ class FedPoll(FederatedLearningClass):
             torch_list_weights = torch.stack([clients_models[i][key].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
             global_dict[key] = torch_list_weights.sum(0)
     
-    def aggregate(self, clients_models, global_model):
+    def aggregate(self, clients_models, global_model, global_model_obj, clients_id):
 
         r_tensors = []
         if self.first_aggregation:
@@ -125,11 +125,9 @@ class FedPoll(FederatedLearningClass):
         self.current_loss = eval_loss
 
         if self.server.round_number != self.num_of_rounds:
-            #self.server.update_clients()
-            self.server.start_round(self.clients_epochs, [100, 200], 0.0001)
+            self.server.start_round(self.clients_epochs)
             return (eval_loss, eval_accuracy)
         else:
-            logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
             return None
 
     def select_clients_to_train(self, all_clients):

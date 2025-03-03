@@ -11,7 +11,7 @@ class FedAvgQ(FederatedLearningClass):
 
     def __init__(self, args=()):
         super().__init__()
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
+        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, fl_context, extra_args = args
         self.no_levels = int(Common.get_param_in_args(extra_args, "levels", 8))
         self.q_method = str(Common.get_param_in_args(extra_args, "quantization", "None"))
         self.c_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", "0"))
@@ -34,7 +34,7 @@ class FedAvgQ(FederatedLearningClass):
     def init_method(self):
         pass
 
-    def aggregate(self, clients_models, global_model):
+    def aggregate(self, clients_models, global_model, global_model_obj, clients_id):
         fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
         for key in global_model.keys():
             torch_list_weights = torch.stack([(clients_models[i][key].float() + global_model[key]) * fedavg_fraction[i] for i in range(len(clients_models))],0)
@@ -48,10 +48,9 @@ class FedAvgQ(FederatedLearningClass):
         logger.log_normal(f"Round {self.server.round_number} is starting...")
         logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
         if self.server.round_number != self.num_of_rounds:
-            self.server.start_round(self.clients_epochs, [100, 200], 0.0001)
+            self.server.start_round(self.clients_epochs)
             return (eval_loss, eval_accuracy)
         else:
-            logger.log_normal(f"Training done! Last global model accuracy is: {eval_accuracy}")
             return None
 
     def select_clients_to_train(self, all_clients):
