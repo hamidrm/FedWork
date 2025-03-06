@@ -56,16 +56,21 @@ class FedALADefense:
         # Return the filtered layers
         return layers
 
-    def aggregate(self, partial_models, global_model):
+    def aggregate(self, partial_models, global_model, weights):
         global_model_list = defaultdict(list)  # Use defaultdict for automatic initialization
+        weights_list = {}
+        client_weight = [weights[i] for i in range(len(weights))]
+
 
         # Collect parameters by key
         for partial_model in partial_models:
-            for key, value in partial_model.items():
-                global_model_list[key].append(value)
-
+            for key, value in partial_model[1].items():
+                global_model_list[key].append(value * client_weight[partial_model[0]])
+                if key not in weights_list.keys():
+                    weights_list[key] = 0
+                weights_list[key] += (client_weight[partial_model[0]])
         # Aggregate by averaging tensors
         for key in global_model_list.keys():
-            global_model[key] = torch.mean(torch.stack(global_model_list[key]), dim=0)
+            global_model[key] = torch.sum(torch.stack(global_model_list[key]), dim=0) / weights_list[key]
 
         return

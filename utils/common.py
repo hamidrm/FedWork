@@ -4,13 +4,14 @@ import torch
 
 class ClientData:
 
-    def __init__(self, name=None, addr=None, processing_power=None, connection=None):
+    def __init__(self, name=None, id=0, addr=None, processing_power=None, connection=None):
         self.name = name
         self.addr = addr
         self.connection = connection
         self.processing_power = processing_power
         self.listener_thread = None
         self.training_count = 0
+        self.id = id
 
 
 class IpAddr:
@@ -63,3 +64,4 @@ class Common:
     @staticmethod
     def is_trainable(model_dict, key):
         return model_dict[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key)
+    

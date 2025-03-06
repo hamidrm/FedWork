@@ -9,11 +9,12 @@ from core.network import Network
 
 class ClientComm(Network):
     
-    def __init__ (self, name, host, port, client_evt_fn) -> None:
+    def __init__ (self, name, id, host, port, client_evt_fn) -> None:
         super().__init__()
         self.name = name
         self.host = host
         self.port = port
+        self.id = id
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         self.client_evt_fn = client_evt_fn
@@ -116,6 +117,7 @@ class ClientComm(Network):
         info = {}
         logger.log_debug(f"[{self.name}]: Sending introduction to the server.")
         info["name"] = self.name
+        info["id"] = self.id
         info["processing_power"] = 5 #Between 0 to 10
         payload_to_send = Common.data_convert_to_bytes(info)
         self.send_data(self.socket, SERVER_NAME, COMM_HEADER_TYPES_INTRODUCTION, 0, 0, payload_to_send)

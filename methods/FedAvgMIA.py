@@ -15,26 +15,22 @@ import math
 
 class FedAvgMIA(FederatedLearningClass):
 
-    def __init__(self, args = ()):
-        super().__init__()
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, fl_context, extra_args = args
-        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 100))
-        self.fl_context = fl_context
-        self.num_of_nodes_contributor = 0
-        self.round_num = 0
-        self.cos_mia = None
+    def __init__(self, method_name, fl_context, method_args):
+        super().__init__(method_name, fl_context, method_args)
+        
+        self.contributors_percent = self.get_arg(int, "contributors_percent", 100)
         self.fedmia_attack = None
         self.lr = 0.1
         self.labels_actual = None
-        self.mixup = MixUpDefense(float(Common.get_param_in_args(extra_args, "mixup_alpha", 0)))
+        self.mixup = MixUpDefense(self.get_arg(float, "mixup_alpha", 100))
+
 
     def get_data_loaders(self):
-
         dir_path = self.fl_context["dataset_path"]
 
-        file_path_train      = os.path.join(dir_path, f"dataset_node_0.ds")
-        file_path_validation = os.path.join(dir_path, f"dataset_node_1.ds")
-
+        file_path_train      = os.path.join(dir_path, f"dataset_node_0.ds") #Dataset of Client 0 , as the target's dataset
+        file_path_validation = os.path.join(dir_path, f"dataset_node_1.ds") #Dataset of Client 1 , as the validation's dataset
+        #TODO - MIX all non-targets' dataset to make a mixed dataset for validation's dataset
         with open(file_path_train,      'rb') as f:
             dataset_loader_train      = pickle.loads(f.read())
 
@@ -49,50 +45,44 @@ class FedAvgMIA(FederatedLearningClass):
 
         return dataset_loader_validation, dataset_loader_train
 
-
     def get_name(self):
         return "FedAvgMIA"
     
-    def init_method(self):
+    def init_method(self, server):
         dataset_loader_validation, dataset_loader_train = self.get_data_loaders()
-        #self.cos_mia = CosMIA(dataset_loader_train, dataset_loader_validation, torch.optim.SGD, nn.CrossEntropyLoss)
         self.fedmia_attack = FedMIA(dataset_loader_train, dataset_loader_validation, torch.optim.SGD, nn.CrossEntropyLoss)
+        super().init_method(server)
 
-    def aggregate(self, clients_models, global_model, global_model_obj, clients_id):
-        fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
-        for key in global_model.keys():
-            torch_list_weights = torch.stack([clients_models[i][key].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
-            global_model[key] = torch_list_weights.sum(0)
+    def aggregate(self, clients_models, global_model):
+        super().aggregate(clients_models, global_model)
 
-        self.round_num += 1
-        
-        if self.round_num % 10 == 0:
-            model_class = type(global_model_obj)
-            target_model = model_class().to(self.platform)
+        if self.round_num() % 10 == 0:
+            model_class = self.method_dict["arch"]
             global_model_clone = model_class().to(self.platform)
+            target_model = model_class().to(self.platform)
 
-            target_model_name = "Client0"
-            target_model_index = clients_id.index(target_model_name)
-            target_model.load_state_dict(clients_models[target_model_index]) # Specific model as the target model to inference the member being of experimental data set
+            target_model_id = 0
+            
+            target_model_index = next(
+                (i for i, client_state_dict in enumerate(clients_models) if client_state_dict[0] == target_model_id), 
+                None
+            )
+
+            target_model.load_state_dict(clients_models[target_model_index][1]) # Specific model as the target model to inference the member being of experimental data set
             global_model_clone.load_state_dict(global_model)
 
-
-            #self.cos_mia.execute(target_model, global_model_clone, self.platform, self.lr)
-            #res = self.cos_mia.get_last_auc_metrics()
-
-            shadow_models=[]
+            shadow_models = []
             for i, client_state_dict in enumerate(clients_models):
-                shadow_model = model_class().to(self.platform)
-                shadow_model.load_state_dict(client_state_dict)
-                if target_model_index != i:
+                if i != target_model_index:
+                    shadow_model = model_class().to(self.platform)
+                    shadow_model.load_state_dict(client_state_dict[1])
                     shadow_models.append(shadow_model)
 
             self.fedmia_attack.execute(shadow_models, target_model, global_model_clone, self.platform, self.lr)
-            res = self.fedmia_attack.get_last_auc_metrics()
             res_total = self.fedmia_attack.get_auc_metrics(self.platform)
-            logger.log_normal(f"FedMIA Attack on round {self.round_num}: {res}, model: {target_model_name}, cumulative: {res_total}")
-            profiler.save_variable("MIA", res["tprs"]["0.01"], self.round_num - 1)
-            profiler.save_variable("MIA_CUMUL", res_total["tprs"]["0.01"], self.round_num - 1)
+            if res_total != None:
+                logger.log_normal(f"FedMIA Attack on round {self.round_num()}: model id: {target_model_id}, {res_total}")
+                profiler.save_variable("MIA_CUMUL", res_total["tprs"]["0.01"], self.round_num() - 1)
 
 
     def start_training(self):
@@ -100,15 +90,14 @@ class FedAvgMIA(FederatedLearningClass):
         eval_loss, eval_accuracy = self.server.evaluate_model()
         logger.log_normal(f"Round {self.server.round_number} is starting...")
         logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
-        if self.server.round_number != self.num_of_rounds:
+        if self.round_num() != self.num_of_rounds:
             #self.lr *= 0.99
-            self.lr = 0.1 * (1 + math.cos(math.pi * self.server.round_number / self.num_of_rounds)) / 2 
+            self.lr = 0.1 * (1 + math.cos(math.pi * self.round_num() / self.num_of_rounds)) / 2 
             self.server.start_round(self.clients_epochs, self.lr)
             return (eval_loss, eval_accuracy)
         else:
             res = self.fedmia_attack.get_auc_metrics(self.platform)
-            #res = self.cos_mia.get_auc_metrics(self.platform)
-            logger.log_normal(f"Final FedMIA Attack on {self.round_num} epochs: {res}")
+            logger.log_normal(f"Final FedMIA Attack on {self.round_num()} epochs: {res}")
             logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
             return None
 

@@ -26,7 +26,7 @@ class Server:
         self.fl_method = fl_method
         self.round_number = 0
         self.fl_method.server = self
-        fl_method.init_method()
+        fl_method.init_method(self)
         logger.log_debug(f"Server initilization done.")
 
         profiler.add_var_monitor_changes("no_rcvd_total", self.server_comm, MEASURE_PROBE_CHANGES_TOTAL_RCVD_BYTES)
@@ -57,7 +57,7 @@ class Server:
             self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
 
     def fetch_clients_pool(self):
-        return self.server_comm.clients
+        return self.server_comm.get_clients()
     
     def start_periodic_mode(self, client_name, epochs, lr = None):
         periodic_cfg = {}
@@ -79,7 +79,7 @@ class Server:
             logger.log_debug(f"The trained model received from '{client.name}'.")
 
             with self.received_models_lock:
-                self.received_models.append((client.name, data))
+                self.received_models.append((client.id, data))
 
             logger.log_info(f"[{self.fl_method.get_name()}]: Trained model received from '{client.name}'.")
             with self.received_models_lock:
@@ -113,13 +113,12 @@ class Server:
             self.server_comm.send_data_pkg(client, global_model_pack)
             
     def __aggregation_thread(self, packed_models_list):
-        models_list = [self.fl_method.unpack_client_model(packed_model[1]) for packed_model in packed_models_list]
+        models_list = [(packed_model[0],self.fl_method.unpack_client_model(packed_model[1])) for packed_model in packed_models_list]
 
         profiler.start_measuring(MEASURE_PROBE_AGGR_TIME)
         self.global_model_dict = self.global_model.state_dict()
 
-        models_id = [t[0] for t in packed_models_list]
-        self.fl_method.aggregate(models_list, self.global_model_dict, self.global_model, models_id)
+        self.fl_method.aggregate(models_list, self.global_model_dict)
         self.global_model.load_state_dict(self.global_model_dict)
         profiler.stop_measuring(MEASURE_PROBE_AGGR_TIME, self.round_number)
 

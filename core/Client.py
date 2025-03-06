@@ -11,7 +11,7 @@ from utils.security.DataManipulation import *
 import copy
 
 class Client:
-    def __init__(self, name, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, method: FederatedLearningClass,executer = "cpu", data_manipulation = None):
+    def __init__(self, name, id, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, method: FederatedLearningClass,executer = "cpu"):
         
         self.client_model = model
         self.global_model = copy.deepcopy(model)
@@ -26,6 +26,7 @@ class Client:
         self.executer = executer
         self.dataset = train_ds
         self.name = name
+        self.id = id
         self.method = method
         self.total_epochs = 0
         self.training_count = 0
@@ -37,16 +38,7 @@ class Client:
         self.periodic_training_gamma = 0
         self.lr = hyperparameters.learning_rate
         self.is_training_lock = threading.Lock()
-        self.data_manipulation_status = False
-        self.data_manipulation = data_manipulation
-        if data_manipulation is not None:
-            if data_manipulation["type"] == "MixUp":
-                self.mixup_dm = MixUpDefense(data_manipulation["alpha"])
-                self.data_manipulation_status = True
-            elif data_manipulation["type"] == "InstaHide":
-                self.instahide_dm = InstaHideDataObfuscator(train_ds, None, data_manipulation["num_of_mix"], data_manipulation["max_weight"])
-                self.data_manipulation_status = True
-        self.client_comm = ClientComm(name, ip_addr.get_ip(), ip_addr.get_port(), self.__client_evt_cb)
+        self.client_comm = ClientComm(name, id, ip_addr.get_ip(), ip_addr.get_port(), self.__client_evt_cb)
         logger.log_debug(f"[{name}]: Initialization done.")
 
     def __client_evt_cb(self, evt, data):

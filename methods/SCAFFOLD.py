@@ -10,12 +10,11 @@ from utils.common import Common
 
 class SCAFFOLD(FederatedLearningClass):
 
-    def __init__(self, args = ()):
-        super().__init__()
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, fl_context, extra_args = args
-        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 100))
-        self.num_of_nodes_contributor = 0
-        self.round_num = 0
+    def __init__(self, method_name, fl_context, method_args):
+        super().__init__(method_name, fl_context, method_args)
+        
+        self.contributors_percent = self.get_arg(int, "contributors_percent", 80)
+
         self.client_control_variate = None
         self.global_control_variate = None
         self.lr = 0
@@ -35,10 +34,8 @@ class SCAFFOLD(FederatedLearningClass):
     def get_name(self):
         return "SCAFFOLD"
     
-    def init_method(self):
-        pass
 
-    def aggregate(self, clients_models, global_model, global_model_obj, clients_id):
+    def aggregate(self, clients_models, global_model):
         #datasets_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
 
         delta_global_model = copy.deepcopy(global_model)
@@ -53,8 +50,8 @@ class SCAFFOLD(FederatedLearningClass):
             self.global_control_variate = self.initialize_control_variates(global_model)
         
         for client_model in clients_models:
-            model = client_model["client_model"]
-            client_control_variate = client_model["updated_client_control_variate"]
+            model = client_model[1]["client_model"]
+            client_control_variate = client_model[1]["updated_client_control_variate"]
             for key in global_model.keys():
                 if Common.is_trainable(model, key):
                     delta_global_model[key] += model[key] / self.num_of_nodes_contributor
@@ -65,31 +62,13 @@ class SCAFFOLD(FederatedLearningClass):
                 global_model[key] = global_model[key] + delta_global_model[key]
                 self.global_control_variate[key] = self.global_control_variate[key] + (float(self.num_of_nodes_contributor) / float(self.N)) * delta_c[key]
             else:
-                global_model[key] = clients_models[0]["sta"][key]
-        self.round_num += 1
+                global_model[key] = clients_models[0][1]["sta"][key]
 
-
-    def start_training(self):
-        logger.log_normal(f"===================================================")
-        eval_loss, eval_accuracy = self.server.evaluate_model()
-        logger.log_normal(f"Round {self.server.round_number} is starting...")
-        logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
-        if self.server.round_number != self.num_of_rounds:
-            self.server.start_round(self.clients_epochs)
-            return (eval_loss, eval_accuracy)
-        else:
-            return None
 
     def select_clients_to_train(self, all_clients):
         self.N = len(all_clients)
         self.num_of_nodes_contributor = int((float(self.contributors_percent) / 100.0) * len(all_clients))
         return dict(random.sample(list(all_clients.items()), self.num_of_nodes_contributor))
-
-    def select_clients_to_update(self, all_clients):
-        return all_clients
-
-    def unpack_client_model(self, packed_model):
-        return packed_model
     
     def pack_server_model(self, raw_model):
         packed_model = {}

@@ -14,20 +14,13 @@ import math
 
 class FedALA(FederatedLearningClass):
 
-    def __init__(self, args = ()):
-        super().__init__()
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, fl_context, extra_args = args
+    def __init__(self, method_name, fl_context, method_args):
+        super().__init__(method_name, fl_context, method_args)
 
-        self.num_of_nodes_contributor = 0
-        self.round_num = 0
-        self.cos_mia = None
         self.fedmia_attack = None
         self.lr = 0.1
-        self.labels_actual = None
-        self.fl_context = fl_context
-
-        self.lcr = float(Common.get_param_in_args(extra_args, "lcr", 1.0))
-        self.alpha = float(Common.get_param_in_args(extra_args, "alpha", 0.0))
+        self.lcr = self.get_arg(float, "lcr", 1.0)
+        self.alpha = self.get_arg(float, "alpha", 0.0)
         self.fla = FedALADefense(self.lcr, self.alpha)
         
 
@@ -55,7 +48,7 @@ class FedALA(FederatedLearningClass):
     def get_name(self):
         return "FedALA"
     
-    def init_method(self):
+    def init_method(self, server):
         separator = "-" * 55
         title = "Federated Adaptive Layer Aggregation"
         info = f"Layers Contribution Ratio: {self.lcr * 100:.2f}%, Alpha: {self.alpha}"
@@ -67,34 +60,36 @@ class FedALA(FederatedLearningClass):
         logger.log_normal(separator)
         dataset_loader_validation, dataset_loader_train = self.get_data_loaders()
         self.fedmia_attack = FedMIA(dataset_loader_train, dataset_loader_validation, torch.optim.SGD, nn.CrossEntropyLoss)
-        pass
+        super().init_method(server)
 
 
-    def aggregate(self, clients_models, global_model, global_model_obj, clients_id):
+    def aggregate(self, clients_models, global_model):
 
-        self.fla.aggregate(clients_models, global_model)
+        self.fla.aggregate(clients_models, global_model, self.datasets_weights)
         
-        self.round_num += 1
-        
-        if self.round_num % 10 == 0:
-            model_class = type(global_model_obj)
+        if self.round_num() % 10 == 0:
+            model_class = self.method_dict["arch"]
             global_model_clone = model_class().to(self.platform)
 
-            target_model_name = "Client0"
-            target_model_index = clients_id.index(target_model_name)
+            target_model_id = 0 # Client 0 will be our target node to evaluate FedMIA attack on it
+            
+            target_model_index = next(
+                (i for i, client_state_dict in enumerate(clients_models) if client_state_dict[0] == target_model_id), 
+                None
+            )
+
             global_model_clone.load_state_dict(global_model)
 
-
-            shadow_models=[]
+            shadow_models = []
             for i, client_state_dict in enumerate(clients_models):
-                if target_model_index != i:
-                    shadow_models.append(client_state_dict)
+                if i != target_model_index:
+                    shadow_models.append(client_state_dict[1])
 
-            self.fedmia_attack.execute(shadow_models, clients_models[target_model_index], global_model_clone, self.platform, self.lr)
+            self.fedmia_attack.execute(shadow_models, clients_models[target_model_index][1], global_model_clone, self.platform, self.lr)
             res_total = self.fedmia_attack.get_auc_metrics(self.platform)
             if res_total != None:
-                logger.log_normal(f"FedMIA Attack on round {self.round_num}: model: {target_model_name}, {res_total}")
-                profiler.save_variable("MIA_CUMUL", res_total["tprs"]["0.01"], self.round_num - 1)
+                logger.log_normal(f"FedMIA Attack on round {self.round_num()}: model id: {target_model_id}, {res_total}")
+                profiler.save_variable("MIA_CUMUL", res_total["tprs"]["0.01"], self.round_num() - 1)
 
 
     def start_training(self):
@@ -108,44 +103,14 @@ class FedALA(FederatedLearningClass):
             return (eval_loss, eval_accuracy)
         else:
             res = self.fedmia_attack.get_auc_metrics(self.platform)
-            logger.log_normal(f"Final FedMIA Attack on {self.round_num} epochs: {res}")
+            logger.log_normal(f"Final FedMIA Attack on {self.round_num()} epochs: {res}")
             logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
             return None
-
-    def select_clients_to_train(self, all_clients):
-        self.num_of_nodes_contributor = len(all_clients)
-        return dict(random.sample(list(all_clients.items()), len(all_clients)))
-
-    def select_clients_to_update(self, all_clients):
-        return all_clients
 
     def pack_client_model(self, raw_model, global_model):
         new_packet = self.fla.build_packet(raw_model, global_model)
         return new_packet
-
-    def unpack_client_model(self, packed_model):
-        return packed_model
-    
-    def pack_server_model(self, raw_model):
-        return raw_model
-
-    def unpack_server_model(self, packed_model):
-        return packed_model
     
     def ready_to_aggregate(self, num_of_received_model: int) -> bool:
         logger.log_normal(f"Number of trained models: {num_of_received_model}")
-        if num_of_received_model == self.num_of_nodes_contributor:
-            return True
-        else:
-            return False
-        
-"""     def client_training_get_data(self, inputs, labels):
-        inputs, self.labels_actual, labels, _ = self.mixup.get_data(inputs, labels)
-        return inputs, labels
-
-    def client_training_correctness(self, outputs, labels):
-        return self.mixup.correctness(outputs, self.labels_actual, labels)
-    
-    def client_training_criterion(self, criterion_fn, outputs, labels):
-        return self.mixup.criterion(criterion_fn, outputs, self.labels_actual, labels)
-     """
+        return super().ready_to_aggregate(num_of_received_model)

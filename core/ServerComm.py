@@ -100,7 +100,7 @@ class ServerComm(Network):
                 self.no_rcvd_total += len(client_info)
                 self.no_rcvd_data  += len(client_info)
                 info = pickle.loads(client_info)
-                client_data = ClientData(info["name"], address, info["processing_power"], connection)
+                client_data = ClientData(info["name"], info["id"], address, info["processing_power"], connection)
                 client_data.listener_thread = self.create_new_receiver(info["name"], connection)
                 self.clients[info["name"]] = client_data
                 client_name = info["name"]

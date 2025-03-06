@@ -8,7 +8,7 @@
             "program": "${workspaceFolder}/fedwork.py",
             "console": "integratedTerminal",
             "args": [
-                "config_fedla_noniid3.xml"
+                "asdfg.xml"
             ]
         }
     ]

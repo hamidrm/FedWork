@@ -14,7 +14,6 @@ import dataset.dataset as DS
 from core.Server import *
 import torch.optim as optim
 from utils.plotter import Plotter
-from methods.FedALA import FedALA
 
 class fedwork:
     def __init__(self):
@@ -164,7 +163,7 @@ class fedwork:
         if class_obj is None:
             raise ValueError(f"Class '{class_name}' not found in the provided code string.")
 
-        instance = class_obj(args)
+        instance = class_obj(*tuple(args))
 
         return instance
 
@@ -256,6 +255,7 @@ class fedwork:
         methods_cfg = methods_cfg if isinstance(methods_cfg, list) else [methods_cfg]
         weights = [(float(len(dataloader.dataset)) / float(sum([len(dataloader.dataset) for  dataloader in train_dataset_list]))) for dataloader in train_dataset_list]
         self.fl_context["dataset_weights"] = weights
+        
         self.fl_context["methods_list"] = {}
         for method in methods_cfg:
             profiler.reset_profiles()
@@ -360,7 +360,7 @@ class fedwork:
                     if var_name in vars_list:
                         arch.SetParameter(var_name, var_text)
 
-            self.fl_context["methods_list"][method_name]["arch"] = arch
+            
             msg = arch.Build()
 
             if msg != '':
@@ -368,14 +368,14 @@ class fedwork:
                 break
         
             global_model = arch.CreateModel().to(method_platform)
+            self.fl_context["methods_list"][method_name]["arch"] = arch.get_class()
 
             loss_func = self.get_loss_function(eval_criterion)
             self.fl_context["methods_list"][method_name]["loss_func"] = loss_func
             self.fl_context["methods_list"][method_name]["platform"] = method_platform
-            if method_args == "":
-                method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, self.fl_context))
-            else:
-                method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, self.fl_context, method_args))
+
+            # Load the method for Server-side requests
+            method_obj = self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
             
             server = Server(IpAddr(net_ip, net_port), method_obj, test_dataset, global_model, loss_func, method_platform)
 
@@ -427,15 +427,11 @@ class fedwork:
                 if localclients_num != 0:
                     for client_id in range(localclients_num):
                         model = arch.CreateModel().to(method_platform)
-                        if method_args == "":
-                            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, self.fl_context))
-                        else:
-                            method_obj = self.load_method(method_class, method_type, (method_num_of_epochs, num_of_rounds, weights, method_platform, self.fl_context, method_args))
+
+                        # Load the method for Client-side requests
+                        method_obj = self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
                         
-                        dm = {}
-                        dm["type"] = "MixUp"
-                        dm["alpha"] = 0.5
-                        new_client = Client(f"Client{client_id}", IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform, None)
+                        new_client = Client(f"Client{client_id}", client_id, IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform)
                         self.local_clients.append(new_client)
 
             server.start_training()
@@ -473,6 +469,147 @@ class fedwork:
         
         # Step 3.
         # Generate repoorts
+
+        fig_hv_tag = "fig:hv"
+        
+        figs_cfg = report_cfg[fig_hv_tag]
+
+        if not isinstance(figs_cfg, list):
+            figs_cfg = [figs_cfg]
+            
+        for fig in figs_cfg:
+            
+            attr_name = "@name"
+            attr_x_axis = "@x_axis"
+            attr_y_axis = "@y_axis"
+            attr_methods = "@methods"
+            attr_caption = "@caption"
+            attr_labels = "@labels"
+            attr_x_axis_title = "@x_axis_title"
+            attr_y_axis_title = "@y_axis_title"
+            attr_x_axis_scale = "@x_axis_scale"
+            attr_y_axis_scale = "@y_axis_scale"
+            attr_style = "@style"
+            fig_caption = ""
+
+            if not attr_name in fig.keys():
+                util.logger.log_error(f"Figures should have a name attribute!")
+                break
+
+            if not attr_x_axis in fig.keys():
+                x_axis = "Round"
+            else:
+                x_axis = fig["@x_axis"]
+
+            if not attr_y_axis in fig.keys():
+                util.logger.log_error(f"Figure '{attr_name}' should have a y_axis attribute!")
+                break
+
+        
+            if not attr_methods in fig.keys():
+                util.logger.log_error(f"Figure '{attr_name}' should have a methods attribute!")
+                break
+
+
+
+            name = fig[attr_name]
+            y_axis = fig[attr_y_axis]
+            methods = str(fig[attr_methods]).split(",")
+
+            if not attr_caption in fig.keys():
+                fig_caption = name
+            else:
+                fig_caption = fig[attr_caption]
+
+            if not attr_style in fig.keys():
+                style = ""
+            else:
+                style = fig[attr_style]
+
+            x_axis_scale = 1.0
+            if attr_x_axis_scale in fig.keys():
+                x_axis_scale = float(fig[attr_x_axis_scale])
+
+            y_axis_scale = 1.0
+            if attr_y_axis_scale in fig.keys():
+                y_axis_scale = float(fig[attr_y_axis_scale])
+
+            y_labels = None
+            if attr_labels in fig.keys():
+                y_labels = str(fig[attr_labels]).split(",")
+            
+            plot_index = 0
+
+            self.plotter.plot_begin(style_str=style)
+            
+            for method in methods:
+
+                if not method in probes_bin:
+                    util.logger.log_error(f"Needed method(s) for figure '{name}' was not found!")
+                    break
+        
+                probes = pickle.loads(probes_bin[method])
+                probes_times_prof = probes["time_profiles"]
+                probes_vars = probes["var_values"]
+                probes_var_changes = probes["var_changes"]
+
+                y_axis_params = str(fig[attr_y_axis]).split(",")
+                
+                for y_axis in y_axis_params:
+                    if y_axis in probes_times_prof:
+                        fig_data_y = probes_times_prof[y_axis]
+                    elif y_axis in probes_vars:
+                        fig_data_y = probes_vars[y_axis]
+                    elif y_axis in probes_var_changes:
+                        fig_data_y = probes_var_changes[y_axis]
+                    else:
+                        util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
+                        break
+                    
+
+                    if x_axis in probes_times_prof:
+                        fig_data_x = probes_times_prof[x_axis]
+                    elif x_axis in probes_vars:
+                        fig_data_x = probes_vars[x_axis]
+                    elif x_axis in probes_var_changes:
+                        fig_data_x = probes_var_changes[x_axis]
+                    else:
+                        util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
+                        break
+
+
+                    x = [fig_data_elem[2] for fig_data_elem in fig_data_x]
+                    y = [fig_data_elem[2] for fig_data_elem in fig_data_y]
+                    
+                   
+                    x = [x_v * x_axis_scale for x_v in x]
+                    y = [y_v * y_axis_scale for y_v in y]
+
+                    if y_labels:
+                        ylabel=y_labels[plot_index]
+                    elif len(y_axis_params) == 1:
+                        ylabel=method
+                    else:
+                        ylabel=f"{method}.{y_axis}"
+                    
+                    reference_point = (1.0, 1.0)
+                    self.plotter.plot_hypervolume2d(x, y, ylabel, reference_point, style, plot_index)
+                    plot_index += 1
+            
+
+            x_axis_title = x_axis
+            y_axis_title = y_axis
+
+            if attr_x_axis_title in fig.keys():
+                x_axis_title = fig[attr_x_axis_title]
+
+            if attr_y_axis_title in fig.keys():
+                y_axis_title = fig[attr_y_axis_title]
+
+            figure_path = os.path.join(output_path, f'{name}.pdf')
+            self.plotter.plot_end(x_axis_title, y_axis_title, fig_caption, figure_path)
+
+
         fig_tag = "fig"
         if not fig_tag in report_cfg:
             util.logger.log_warning(f"It seems no figure as output is needed!")

@@ -125,6 +125,11 @@ class FWArch:
         
         return self.error_msg
     
+
+    def get_class(self):
+        return self.arch_class
+    
+    
     def CreateModel(self):
         if hasattr(self, "arch_class"):
             return self.arch_class()

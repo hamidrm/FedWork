@@ -4,6 +4,77 @@ import torch
 
 class Plotter:
 
+    def plot_hypervolume2d(self, x, y, label, reference_point, style_str, style_index):
+        
+        y = [1.0-y_v.cpu().numpy() for y_v in y]
+
+        x = np.array(x)
+        y = np.array(y)
+        
+        sorted_indices = np.argsort(x)
+        x_cor = x[sorted_indices]
+        y_cor = y[sorted_indices]
+
+        # Hypervolume calculation
+        hv = 0.0
+        last_x = reference_point[0]
+        for xi, yi in zip(x_cor, y_cor):
+            width = abs(xi - last_x)
+            height = abs(yi - reference_point[1])
+            hv += width * height
+            last_x = xi
+
+        # Extract style parameters safely
+        colors = linestyles = linewidths = markers = fill_colors = None
+        alpha = 0.1  # default alpha
+        
+        if "colors=" in style_str:
+            colors = style_str.split("colors=")[1].split(";")[0].strip().split(",")
+
+        if "alpha=" in style_str:
+            alpha_vals = style_str.split("alpha=")[1].split(";")[0].strip().split(",")
+            if len(alpha_vals) > style_index:
+                alpha = float(alpha_vals[style_index])
+
+        if "fill_color=" in style_str:
+            fill_colors = style_str.split("fill_color=")[1].split(";")[0].strip().split(",")
+
+        if "linestyles=" in style_str:
+            linestyles = style_str.split("linestyles=")[1].split(";")[0].strip().split(",")
+
+        if "linewidths=" in style_str:
+            linewidths = list(map(float, style_str.split("linewidths=")[1].split(";")[0].strip().split(",")))
+
+        if "markers=" in style_str:
+            markers = style_str.split("markers=")[1].split(";")[0].strip().split(",")
+
+        # Safe extraction with defaults
+        c = colors[style_index] if colors and len(colors) > style_index else 'blue'
+        ls = linestyles[style_index] if linestyles and len(linestyles) > style_index else '-'
+        lw = linewidths[style_index] if linewidths and len(linewidths) > style_index else 2
+        m = markers[style_index] if markers and len(markers) > style_index else None
+        fc = fill_colors[style_index] if fill_colors and len(fill_colors) > style_index else c
+
+        # Plot Pareto front
+        #plt.plot(x_cor, y_cor, color=c, linestyle=ls, linewidth=lw, marker=m, label=label)
+
+        # Fill hypervolume area
+        plt.fill_between(
+            x_cor,
+            y_cor,
+            reference_point[1],
+            step='post',
+            color=fc,
+            alpha=alpha,
+            label='Hypervolume Area'
+        )
+
+        # Display hypervolume (placed adaptively)
+        text_x = np.mean(x_cor)
+        text_y = np.mean(y_cor)
+        plt.text(text_x, text_y, f"HV {label}: {hv:.4f}", fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
+
+
     def plot_begin(self, style_str):
         plt.figure()
 

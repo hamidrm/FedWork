@@ -6,47 +6,28 @@ from utils.quantization import QSGDQuantizer
 from utils.common import Common
 
 class FedPAQ(FederatedLearningClass):
-    def __init__(self, args=()):
-        super().__init__()
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, fl_context, extra_args = args
-        num_levels = int(Common.get_param_in_args(extra_args, "num_levels", 16))
-        r_percent = int(Common.get_param_in_args(extra_args, "r_percent", 80))
-        self.quantizer = QSGDQuantizer(num_levels)
-        self.num_of_nodes_contributor = 0
-        self.contributors_percent = (float(r_percent) / 100.0)
+    def __init__(self, method_name, fl_context, method_args):
+        super().__init__(method_name, fl_context, method_args)
+        
+        self.num_levels = self.get_arg(int, "num_levels", 16)
+        self.r_percent = self.get_arg(int, "r_percent", 80)
+
+        self.quantizer = QSGDQuantizer(self.num_levels)
+        self.contributors_percent = (float(self.r_percent) / 100.0)
 
     def get_name(self):
         return "FedPAQ"
     
-    def init_method(self):
-        pass
-
-    def aggregate(self, clients_models, global_model, global_model_obj, clients_id):
-
+    def aggregate(self, clients_models, global_model):
         for key in global_model.keys():
             if Common.is_trainable(global_model, key):
-                torch_list_weights = torch.stack([(clients_models[i][key].float() + global_model[key]) for i in range(len(clients_models))], 0)
+                torch_list_weights = torch.stack([(clients_models[i][1][key].float() + global_model[key]) for i in range(len(clients_models))], 0)
                 global_model[key] = torch_list_weights.mean(0)
             else:
-                global_model[key] = clients_models[0][key]
-
-    def start_training(self):
-        logger.log_normal(f"===================================================")
-        eval_loss, eval_accuracy = self.server.evaluate_model()
-        logger.log_normal(f"Round {self.server.round_number} is starting...")
-        logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
-        if self.server.round_number != self.num_of_rounds:
-            self.server.start_round(self.clients_epochs)
-            return (eval_loss, eval_accuracy)
-        else:
-            return None
+                global_model[key] = clients_models[0][1][key]
 
     def select_clients_to_train(self, all_clients):
-        self.num_of_nodes_contributor = int(float(self.contributors_percent) * len(all_clients))
-        return dict(random.sample(list(all_clients.items()), self.num_of_nodes_contributor))
-
-    def select_clients_to_update(self, all_clients):
-        return all_clients
+        return self.select_random_clients(all_clients, self.contributors_percent)
 
     def pack_client_model(self, raw_model, global_model):
         quantized_model = {}
@@ -76,18 +57,4 @@ class FedPAQ(FederatedLearningClass):
                 dequantized_model[key] = self.quantizer.dequantize(quantized_model[key], scale[key])
         
         return dequantized_model
-
-    def pack_server_model(self, raw_model):
-        return raw_model
-
-    def unpack_server_model(self, packed_model):
-        return packed_model
-    
-    def ready_to_aggregate(self, num_of_received_model: int) -> bool:
-        logger.log_normal(f"Number of trained models: {num_of_received_model}")
-        if num_of_received_model == self.num_of_nodes_contributor:
-            return True
-        else:
-            return False
-
         

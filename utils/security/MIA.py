@@ -20,6 +20,8 @@ class MIACommon:
             filtered_tensor_mean[i] = torch.mean(tensor_list[i][tensor_list[i][:] < threshold], dim=0)
             filtered_tensor_var[i] = torch.var(tensor_list[i][tensor_list[i][:] < threshold], dim=0) + 1e-8
 
+        return filtered_tensor_mean, filtered_tensor_var
+
     @staticmethod
     def calculate_auc_metrics(val_scores, train_scores):
         
