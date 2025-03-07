@@ -56,7 +56,7 @@ class Plotter:
         fc = fill_colors[style_index] if fill_colors and len(fill_colors) > style_index else c
 
         # Plot Pareto front
-        #plt.plot(x_cor, y_cor, color=c, linestyle=ls, linewidth=lw, marker=m, label=label)
+        plt.plot(x_cor, y_cor, color=c, linestyle=ls, linewidth=lw, marker=m, label=label)
 
         # Fill hypervolume area
         plt.fill_between(
@@ -66,13 +66,13 @@ class Plotter:
             step='post',
             color=fc,
             alpha=alpha,
-            label='Hypervolume Area'
+            label=f"HV {label}: {hv:.4f}"
         )
 
         # Display hypervolume (placed adaptively)
         text_x = np.mean(x_cor)
         text_y = np.mean(y_cor)
-        plt.text(text_x, text_y, f"HV {label}: {hv:.4f}", fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
+        #plt.text(text_x, text_y, f"HV {label}: {hv:.4f}", fontsize=12, bbox=dict(facecolor='white', alpha=0.8))
 
 
     def plot_begin(self, style_str):

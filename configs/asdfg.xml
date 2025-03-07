@@ -1,6 +1,6 @@
-<fedwork_cfg name="fedavg_mia_niid_213" num_of_nodes="10" net_port="36525" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
+<fedwork_cfg name="fedavg_mia_niid_211" num_of_nodes="10" net_port="36525" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
 	<dataset type="CIFAR100">
-		<var name="alpha">1</var>
+		<var name="alpha">0.1</var>
 		<var name="train_batch_size">100</var>
 		<var name="test_batch_size">100</var>
 		<var name="num_workers">0</var>
@@ -16,6 +16,7 @@
 			<var name="NumberOfInputChannels">3</var>
 		</arch>
 		<var name="epochs_num">1</var>
+		<var name="args">contributors_percent=100</var>
 	</method>
 	<method name="FedLA_New_Cosim_10p_niid" type="FedALA" platform="cuda:1">
 		<arch type="AlexNetMini">
@@ -31,7 +32,7 @@
 			<var name="NumberOfInputChannels">3</var>
 		</arch>
 		<var name="epochs_num">1</var>
-		<var name="args">mixup_alpha=0.5</var>
+		<var name="args">contributors_percent=100,mixup_alpha=0.5</var>
 	</method>
 	<method name="FedLA_pmu" type="FedALAPMU" platform="cuda:1">
 		<arch type="AlexNetMini">

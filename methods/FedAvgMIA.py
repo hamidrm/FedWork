@@ -18,7 +18,6 @@ class FedAvgMIA(FederatedLearningClass):
     def __init__(self, method_name, fl_context, method_args):
         super().__init__(method_name, fl_context, method_args)
         
-        self.contributors_percent = self.get_arg(int, "contributors_percent", 100)
         self.fedmia_attack = None
         self.lr = 0.1
         self.labels_actual = None
@@ -54,6 +53,7 @@ class FedAvgMIA(FederatedLearningClass):
         super().init_method(server)
 
     def aggregate(self, clients_models, global_model):
+        logger.log_info(f"Weights: {self.datasets_weights} , Clients ID: ")
         super().aggregate(clients_models, global_model)
 
         if self.round_num() % 10 == 0:
@@ -91,7 +91,6 @@ class FedAvgMIA(FederatedLearningClass):
         logger.log_normal(f"Round {self.server.round_number} is starting...")
         logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
         if self.round_num() != self.num_of_rounds:
-            #self.lr *= 0.99
             self.lr = 0.1 * (1 + math.cos(math.pi * self.round_num() / self.num_of_rounds)) / 2 
             self.server.start_round(self.clients_epochs, self.lr)
             return (eval_loss, eval_accuracy)
@@ -100,33 +99,7 @@ class FedAvgMIA(FederatedLearningClass):
             logger.log_normal(f"Final FedMIA Attack on {self.round_num()} epochs: {res}")
             logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
             return None
-
-    def select_clients_to_train(self, all_clients):
-        self.num_of_nodes_contributor = int((float(self.contributors_percent) / 100.0) * len(all_clients))
-        return dict(random.sample(list(all_clients.items()), self.num_of_nodes_contributor))
-
-    def select_clients_to_update(self, all_clients):
-        return all_clients
-
-    def pack_client_model(self, raw_model, global_model):
-        return raw_model
-
-    def unpack_client_model(self, packed_model):
-        return packed_model
-    
-    def pack_server_model(self, raw_model):
-        return raw_model
-
-    def unpack_server_model(self, packed_model):
-        return packed_model
-    
-    def ready_to_aggregate(self, num_of_received_model: int) -> bool:
-        logger.log_normal(f"Number of trained models: {num_of_received_model}")
-        if num_of_received_model == self.num_of_nodes_contributor:
-            return True
-        else:
-            return False
-        
+     
     def client_training_get_data(self, inputs, labels):
         inputs, self.labels_actual, labels, _ = self.mixup.get_data(inputs, labels)
         return inputs, labels

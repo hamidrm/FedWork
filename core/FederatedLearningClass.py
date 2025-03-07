@@ -47,7 +47,7 @@ class FederatedLearningClass(ABC):
 
     def select_clients_to_train(self, all_clients):
         self.num_of_contributor_nodes = len(all_clients)
-        return dict(random.sample(list(all_clients.items()), len(all_clients)))
+        return all_clients
     
     def select_clients_to_update(self, all_clients):
         return all_clients
