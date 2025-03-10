@@ -1,6 +1,6 @@
-<fedwork_cfg name="fedavg_mia_niid_213" num_of_nodes="10" net_port="36525" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
+<fedwork_cfg name="fedavg_mia_niid_216" num_of_nodes="10" net_port="36525" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
 	<dataset type="CIFAR100">
-		<var name="alpha">1</var>
+		<var name="alpha">0.1</var>
 		<var name="train_batch_size">100</var>
 		<var name="test_batch_size">100</var>
 		<var name="num_workers">0</var>

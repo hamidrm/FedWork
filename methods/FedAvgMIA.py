@@ -21,7 +21,7 @@ class FedAvgMIA(FederatedLearningClass):
         self.fedmia_attack = None
         self.lr = 0.1
         self.labels_actual = None
-        self.mixup = MixUpDefense(self.get_arg(float, "mixup_alpha", 100))
+        self.mixup = MixUpDefense(self.get_arg(float, "mixup_alpha", 0))
 
 
     def get_data_loaders(self):
@@ -53,7 +53,6 @@ class FedAvgMIA(FederatedLearningClass):
         super().init_method(server)
 
     def aggregate(self, clients_models, global_model):
-        logger.log_info(f"Weights: {self.datasets_weights} , Clients ID: ")
         super().aggregate(clients_models, global_model)
 
         if self.round_num() % 10 == 0:

@@ -6,7 +6,7 @@ class Plotter:
 
     def plot_hypervolume2d(self, x, y, label, reference_point, style_str, style_index):
         
-        y = [1.0-y_v.cpu().numpy() for y_v in y]
+        y = [1.0-y[yi * 10].cpu().numpy() for yi in range(int(len(y) / 10))]
 
         x = np.array(x)
         y = np.array(y)
@@ -56,7 +56,7 @@ class Plotter:
         fc = fill_colors[style_index] if fill_colors and len(fill_colors) > style_index else c
 
         # Plot Pareto front
-        plt.plot(x_cor, y_cor, color=c, linestyle=ls, linewidth=lw, marker=m, label=label)
+        #plt.plot(x_cor, y_cor, color=c, linestyle=ls, linewidth=lw, marker=m, label=label)
 
         # Fill hypervolume area
         plt.fill_between(
