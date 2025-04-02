@@ -26,6 +26,8 @@ class RandomizedQuantizer(QuantizationClass):
         self.num_levels = num_levels
 
     def quantize(self, tensor):
+        if self.num_levels == 0:
+            return tensor, 0.0, 1.0
         min_val, max_val = tensor.min(), tensor.max()
         scale = (max_val - min_val) / (self.num_levels - 1)
         normalized_tensor = (tensor - min_val) / scale

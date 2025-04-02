@@ -22,6 +22,7 @@ class MIACommon:
             filtered_tensor_var[i] = torch.var(tensor_list[i][tensor_list[i][:] < threshold], dim=0) + 1e-8
 
         return filtered_tensor_mean, filtered_tensor_var
+
     @staticmethod
     def calculate_auc_metrics(val_scores, train_scores):
         
@@ -149,8 +150,10 @@ class MIACommon:
             for i in range(len(shadow_models)):
                 if shadow_models_pair[i] is not None:
                     shadow_models_pair[i]=torch.cat(shadow_models_pair[i],1)
-                
-            score_list.append(score_function(target_model_pair, shadow_models_pair))
+            score_pair = score_function(target_model_pair, shadow_models_pair)
+
+            if (score_pair[0] is not None) and (score_pair[1] is not None):
+                score_list.append(score_pair)
 
         return score_list
 
@@ -214,8 +217,11 @@ class FedMIA:
             target_cosine_similarity_list = F.cosine_similarity(
                 target_grad_batch, target_grad_diff_tensor, dim=0)
 
-        shadow_cosine_similarity_tensor = torch.stack(shadow_cosine_similarity_list, dim=0)
 
+        if not shadow_cosine_similarity_list:
+            return (None, None)
+        
+        shadow_cosine_similarity_tensor = torch.stack(shadow_cosine_similarity_list, dim=0)
 
         return (shadow_cosine_similarity_tensor,target_cosine_similarity_list)
 
@@ -236,11 +242,10 @@ class FedMIA:
 
         self.device = device
 
-        # Calculate gradients and cosine similarities on the same device
+        # Calculate gradients and cosine similarities
         self.target_grad_diff = MIACommon.calculate_gradient_difference(target_model, global_model.state_dict(), device)
         self.shadow_grad_diffs = [MIACommon.calculate_gradient_difference(shadow_model, global_model.state_dict(), device) for shadow_model in shadow_models]
 
-        # Ensure all tensors are on the correct device
         train_scores = MIACommon.evaluate_model_on_experimental_data(
             self.train_data_loader, shadow_models, target_model, global_model, loss_fn_inst, optimizer_inst, device, self.score_function
         )

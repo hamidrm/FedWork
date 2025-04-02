@@ -62,6 +62,7 @@ class MedMNIST(MedMNIST2D):
                 transform=transform,
                 download=download
             )
+
             self.imgs = np.concatenate([self.imgs, val_dataset.imgs], axis=0)
             self.labels = np.concatenate([self.labels, val_dataset.labels], axis=0)
 

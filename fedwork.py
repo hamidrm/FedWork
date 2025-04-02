@@ -137,23 +137,6 @@ class fedwork:
                 return activation_fn
             
         return None
-
-    def get_optimizer_class(self, optimizer_name):
-        optimizers = {
-            "SGD": optim.SGD,
-            "Adam": optim.Adam,
-            "Adagrad": optim.Adagrad,
-            "RMSprop": optim.RMSprop,
-            "Adadelta": optim.Adadelta,
-            "AdamW": optim.AdamW,
-            "SparseAdam": optim.SparseAdam,
-            # Add more optimizers here as needed
-        }
-
-        if optimizer_name in optimizers:
-            return optimizers[optimizer_name]
-        else:
-            raise ValueError("Invalid optimizer name")
     
     def load_method(self, code_string, class_name, args):
         namespace = {}
@@ -417,8 +400,9 @@ class fedwork:
                 localclients_num = int(localclients_cfg[localclients_num_key])
                 self.fl_context["methods_list"][method_name]["localclients_num"] = localclients_num
                 client_platform = localclients_cfg[attr_platform]
-                optimizer = self.get_optimizer_class(localclients_cfg[attr_optimizer])
-                self.fl_context["methods_list"][method_name]["optimizer"] = optimizer
+                self.fl_context["clients_platform"] = client_platform
+                optimizer = Common.get_optimizer_class(localclients_cfg[attr_optimizer])
+                self.fl_context["methods_list"][method_name]["optimizer_class"] = optimizer
                 if localclients_num > len(train_dataset_list):
                     util.logger.log_warning(f"Local clients number must not be greater the total nodes number! Local clients number will be assumed {len(train_dataset_list)}")
                     localclients_num = len(train_dataset_list)
@@ -472,142 +456,144 @@ class fedwork:
 
         fig_hv_tag = "fig:hv"
         
-        figs_cfg = report_cfg[fig_hv_tag]
 
-        if not isinstance(figs_cfg, list):
-            figs_cfg = [figs_cfg]
-            
-        for fig in figs_cfg:
-            
-            attr_name = "@name"
-            attr_x_axis = "@x_axis"
-            attr_y_axis = "@y_axis"
-            attr_methods = "@methods"
-            attr_caption = "@caption"
-            attr_labels = "@labels"
-            attr_x_axis_title = "@x_axis_title"
-            attr_y_axis_title = "@y_axis_title"
-            attr_x_axis_scale = "@x_axis_scale"
-            attr_y_axis_scale = "@y_axis_scale"
-            attr_style = "@style"
-            fig_caption = ""
+        if fig_hv_tag in report_cfg:
+            figs_cfg = report_cfg[fig_hv_tag]
 
-            if not attr_name in fig.keys():
-                util.logger.log_error(f"Figures should have a name attribute!")
-                break
-
-            if not attr_x_axis in fig.keys():
-                x_axis = "Round"
-            else:
-                x_axis = fig["@x_axis"]
-
-            if not attr_y_axis in fig.keys():
-                util.logger.log_error(f"Figure '{attr_name}' should have a y_axis attribute!")
-                break
-
-        
-            if not attr_methods in fig.keys():
-                util.logger.log_error(f"Figure '{attr_name}' should have a methods attribute!")
-                break
-
-
-
-            name = fig[attr_name]
-            y_axis = fig[attr_y_axis]
-            methods = str(fig[attr_methods]).split(",")
-
-            if not attr_caption in fig.keys():
-                fig_caption = name
-            else:
-                fig_caption = fig[attr_caption]
-
-            if not attr_style in fig.keys():
-                style = ""
-            else:
-                style = fig[attr_style]
-
-            x_axis_scale = 1.0
-            if attr_x_axis_scale in fig.keys():
-                x_axis_scale = float(fig[attr_x_axis_scale])
-
-            y_axis_scale = 1.0
-            if attr_y_axis_scale in fig.keys():
-                y_axis_scale = float(fig[attr_y_axis_scale])
-
-            y_labels = None
-            if attr_labels in fig.keys():
-                y_labels = str(fig[attr_labels]).split(",")
-            
-            plot_index = 0
-
-            self.plotter.plot_begin(style_str=style)
-            
-            for method in methods:
-
-                if not method in probes_bin:
-                    util.logger.log_error(f"Needed method(s) for figure '{name}' was not found!")
-                    break
-        
-                probes = pickle.loads(probes_bin[method])
-                probes_times_prof = probes["time_profiles"]
-                probes_vars = probes["var_values"]
-                probes_var_changes = probes["var_changes"]
-
-                y_axis_params = str(fig[attr_y_axis]).split(",")
+            if not isinstance(figs_cfg, list):
+                figs_cfg = [figs_cfg]
                 
-                for y_axis in y_axis_params:
-                    if y_axis in probes_times_prof:
-                        fig_data_y = probes_times_prof[y_axis]
-                    elif y_axis in probes_vars:
-                        fig_data_y = probes_vars[y_axis]
-                    elif y_axis in probes_var_changes:
-                        fig_data_y = probes_var_changes[y_axis]
-                    else:
-                        util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
-                        break
-                    
+            for fig in figs_cfg:
+                
+                attr_name = "@name"
+                attr_x_axis = "@x_axis"
+                attr_y_axis = "@y_axis"
+                attr_methods = "@methods"
+                attr_caption = "@caption"
+                attr_labels = "@labels"
+                attr_x_axis_title = "@x_axis_title"
+                attr_y_axis_title = "@y_axis_title"
+                attr_x_axis_scale = "@x_axis_scale"
+                attr_y_axis_scale = "@y_axis_scale"
+                attr_style = "@style"
+                fig_caption = ""
 
-                    if x_axis in probes_times_prof:
-                        fig_data_x = probes_times_prof[x_axis]
-                    elif x_axis in probes_vars:
-                        fig_data_x = probes_vars[x_axis]
-                    elif x_axis in probes_var_changes:
-                        fig_data_x = probes_var_changes[x_axis]
-                    else:
-                        util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
-                        break
+                if not attr_name in fig.keys():
+                    util.logger.log_error(f"Figures should have a name attribute!")
+                    break
 
+                if not attr_x_axis in fig.keys():
+                    x_axis = "Round"
+                else:
+                    x_axis = fig["@x_axis"]
 
-                    x = [fig_data_elem[2] for fig_data_elem in fig_data_x]
-                    y = [fig_data_elem[2] for fig_data_elem in fig_data_y]
-                    
-                   
-                    x = [x_v * x_axis_scale for x_v in x]
-                    y = [y_v * y_axis_scale for y_v in y]
+                if not attr_y_axis in fig.keys():
+                    util.logger.log_error(f"Figure '{attr_name}' should have a y_axis attribute!")
+                    break
 
-                    if y_labels:
-                        ylabel=y_labels[plot_index]
-                    elif len(y_axis_params) == 1:
-                        ylabel=method
-                    else:
-                        ylabel=f"{method}.{y_axis}"
-                    
-                    reference_point = (1.0, 1.0)
-                    self.plotter.plot_hypervolume2d(x, y, ylabel, reference_point, style, plot_index)
-                    plot_index += 1
             
+                if not attr_methods in fig.keys():
+                    util.logger.log_error(f"Figure '{attr_name}' should have a methods attribute!")
+                    break
 
-            x_axis_title = x_axis
-            y_axis_title = y_axis
 
-            if attr_x_axis_title in fig.keys():
-                x_axis_title = fig[attr_x_axis_title]
 
-            if attr_y_axis_title in fig.keys():
-                y_axis_title = fig[attr_y_axis_title]
+                name = fig[attr_name]
+                y_axis = fig[attr_y_axis]
+                methods = str(fig[attr_methods]).split(",")
 
-            figure_path = os.path.join(output_path, f'{name}.pdf')
-            self.plotter.plot_end(x_axis_title, y_axis_title, fig_caption, figure_path)
+                if not attr_caption in fig.keys():
+                    fig_caption = name
+                else:
+                    fig_caption = fig[attr_caption]
+
+                if not attr_style in fig.keys():
+                    style = ""
+                else:
+                    style = fig[attr_style]
+
+                x_axis_scale = 1.0
+                if attr_x_axis_scale in fig.keys():
+                    x_axis_scale = float(fig[attr_x_axis_scale])
+
+                y_axis_scale = 1.0
+                if attr_y_axis_scale in fig.keys():
+                    y_axis_scale = float(fig[attr_y_axis_scale])
+
+                y_labels = None
+                if attr_labels in fig.keys():
+                    y_labels = str(fig[attr_labels]).split(",")
+                
+                plot_index = 0
+
+                self.plotter.plot_begin(style_str=style)
+                
+                for method in methods:
+
+                    if not method in probes_bin:
+                        util.logger.log_error(f"Needed method(s) for figure '{name}' was not found!")
+                        break
+            
+                    probes = pickle.loads(probes_bin[method])
+                    probes_times_prof = probes["time_profiles"]
+                    probes_vars = probes["var_values"]
+                    probes_var_changes = probes["var_changes"]
+
+                    y_axis_params = str(fig[attr_y_axis]).split(",")
+                    
+                    for y_axis in y_axis_params:
+                        if y_axis in probes_times_prof:
+                            fig_data_y = probes_times_prof[y_axis]
+                        elif y_axis in probes_vars:
+                            fig_data_y = probes_vars[y_axis]
+                        elif y_axis in probes_var_changes:
+                            fig_data_y = probes_var_changes[y_axis]
+                        else:
+                            util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
+                            break
+                        
+
+                        if x_axis in probes_times_prof:
+                            fig_data_x = probes_times_prof[x_axis]
+                        elif x_axis in probes_vars:
+                            fig_data_x = probes_vars[x_axis]
+                        elif x_axis in probes_var_changes:
+                            fig_data_x = probes_var_changes[x_axis]
+                        else:
+                            util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
+                            break
+
+
+                        x = [fig_data_elem[2] for fig_data_elem in fig_data_x]
+                        y = [fig_data_elem[2] for fig_data_elem in fig_data_y]
+                        
+                    
+                        x = [x_v * x_axis_scale for x_v in x]
+                        y = [y_v * y_axis_scale for y_v in y]
+
+                        if y_labels:
+                            ylabel=y_labels[plot_index]
+                        elif len(y_axis_params) == 1:
+                            ylabel=method
+                        else:
+                            ylabel=f"{method}.{y_axis}"
+                        
+                        reference_point = (1.0, 1.0)
+                        self.plotter.plot_hypervolume2d(x, y, ylabel, reference_point, style, plot_index)
+                        plot_index += 1
+                
+
+                x_axis_title = x_axis
+                y_axis_title = y_axis
+
+                if attr_x_axis_title in fig.keys():
+                    x_axis_title = fig[attr_x_axis_title]
+
+                if attr_y_axis_title in fig.keys():
+                    y_axis_title = fig[attr_y_axis_title]
+
+                figure_path = os.path.join(output_path, f'{name}.pdf')
+                self.plotter.plot_end(x_axis_title, y_axis_title, fig_caption, figure_path)
 
 
         fig_tag = "fig"

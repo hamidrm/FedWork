@@ -24,8 +24,8 @@ class FederatedLearningClass(ABC):
         return value_type(Common.get_param_in_args(self.extra_args, name, default_value))
 
     def select_random_clients(self, all_clients : dict, percent):
-        self.num_of_nodes_contributor = int(percent * len(all_clients))
-        return dict(random.sample(list(all_clients.items()), self.num_of_nodes_contributor)) 
+        self.num_of_contributor_nodes = int(percent * len(all_clients))
+        return dict(random.sample(list(all_clients.items()), self.num_of_contributor_nodes)) 
     
     @abstractmethod
     def get_name(self):
@@ -37,10 +37,11 @@ class FederatedLearningClass(ABC):
             self.server = server
 
     def aggregate(self, clients_models, global_model):
-        fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
+        
         for key in global_model.keys():
-            torch_list_weights = torch.stack([clients_models[i][1][key].float() * fedavg_fraction[clients_models[i][0]] for i in range(len(clients_models))],0)
-            global_model[key] = torch_list_weights.sum(0)
+            torch_list_weights = torch.stack([clients_models[i][1][key].float() * self.datasets_weights[clients_models[i][0]] for i in range(len(clients_models))],0)
+            total_weight = sum([self.datasets_weights[clients_models[i][0]] for i in range(len(clients_models))])
+            global_model[key] = torch_list_weights.sum(0) / total_weight
 
     def round_num(self):
         return self.server.round_number

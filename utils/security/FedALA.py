@@ -5,10 +5,13 @@ import torch.nn.functional as F
 from collections import defaultdict
 
 class FedALADefense:
-    def __init__(self, contribution_ratio, alpha):
+    def __init__(self, contribution_ratio, alpha, noise_std = 0):
         self.contribution_ratio = contribution_ratio
         self.alpha = alpha
+        self.noise_std = noise_std
+        self.probabilities = {}
 
+#Will be called by every one of the clients after they trained the model in a certain number of local epochs
     def build_packet(self, model, global_model):
         layers = {}
         layer_names = set()
@@ -18,7 +21,7 @@ class FedALADefense:
         layers_data_global_model = {}
         cosim_dict = {}
 
-        total_cosim = 0
+        #total_cosim = 0
         # Assign random probabilities to layer names
         for key in model.keys():
             layer_name = ".".join(key.rsplit('.', 1)[:-1])
@@ -42,21 +45,26 @@ class FedALADefense:
             layers_data_global_model[layer] = torch.cat(layers_data_global_model[layer], dim=0)
             layers_data_trained_model[layer] = torch.cat(layers_data_trained_model[layer], dim=0)
             cosim_dict[layer] = (F.cosine_similarity(layers_data_global_model[layer], layers_data_trained_model[layer], dim=0) + 1) / 2.0
-            total_cosim = total_cosim + cosim_dict[layer]
+            #total_cosim = total_cosim + cosim_dict[layer]
 
 
         # Filter layers based on contribution_ratio
         for key, value in model.items():
             layer_name = ".".join(key.rsplit('.', 1)[:-1])
-
+            # Use Last FC layer similarity (layer -> last layer name)
             m = torch.exp(self.alpha * (cosim_dict[layer]-1))
-            if (probabilities[layer_name] * m)  < (self.contribution_ratio):
+            if (probabilities[layer_name] * m)  <= (self.contribution_ratio) or layer == layer_name:
+                logger.log_info(f"Layer: {layer_name}: Probability: {probabilities[layer_name] : .4f}, S: {probabilities[layer_name] * m  : .4f}, LCR: {self.contribution_ratio}")
                 layers[key] = value
         
+
+        for k in layers.keys():
+            layers[k] = layers[k] + torch.randn_like(layers[k]) * self.noise_std
         # Return the filtered layers
         return layers
 
-    def aggregate(self, partial_models, global_model, weights):
+#Will be called by server-side to aggregate received models
+    def aggregate(self, partial_models, global_model, weights, beta):
         global_model_list = defaultdict(list)  # Use defaultdict for automatic initialization
         weights_list = {}
         client_weight = [weights[i] for i in range(len(weights))]
@@ -71,6 +79,6 @@ class FedALADefense:
                 weights_list[key] += (client_weight[partial_model[0]])
         # Aggregate by averaging tensors
         for key in global_model_list.keys():
-            global_model[key] = torch.sum(torch.stack(global_model_list[key]), dim=0) / weights_list[key]
+            global_model[key] = (global_model[key] * beta) + (1-beta) * (torch.sum(torch.stack(global_model_list[key]), dim=0) / weights_list[key])
 
         return

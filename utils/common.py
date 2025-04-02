@@ -1,6 +1,7 @@
 import pickle
 import time
 import torch
+import torch.optim as optim
 
 class ClientData:
 
@@ -65,3 +66,20 @@ class Common:
     def is_trainable(model_dict, key):
         return model_dict[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key)
     
+    @staticmethod
+    def get_optimizer_class(optimizer_name):
+        optimizers = {
+            "SGD": optim.SGD,
+            "Adam": optim.Adam,
+            "Adagrad": optim.Adagrad,
+            "RMSprop": optim.RMSprop,
+            "Adadelta": optim.Adadelta,
+            "AdamW": optim.AdamW,
+            "SparseAdam": optim.SparseAdam,
+            # Add more optimizers here if needed
+        }
+
+        if optimizer_name in optimizers:
+            return optimizers[optimizer_name]
+        else:
+            raise ValueError("Invalid optimizer name")

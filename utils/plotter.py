@@ -6,7 +6,17 @@ class Plotter:
 
     def plot_hypervolume2d(self, x, y, label, reference_point, style_str, style_index):
         
-        y = [1.0-y[yi * 10].cpu().numpy() for yi in range(int(len(y) / 10))]
+
+        if len(y) > len(x):
+            y_o_x = int(len(y) / len(x))
+            y = [y[yi * y_o_x].cpu().numpy() for yi in range(int(len(y) / y_o_x))]
+        
+
+        if len(x) > len(y):
+            x_o_y = int(len(x) / len(y))
+            x = [x[xi * x_o_y].cpu().numpy() for xi in range(int(len(x) / x_o_y))]
+
+        y = [1.0-y[yi] for yi in range(int(len(y)))]
 
         x = np.array(x)
         y = np.array(y)
@@ -62,7 +72,7 @@ class Plotter:
         plt.fill_between(
             x_cor,
             y_cor,
-            reference_point[1],
+            reference_point[0],
             step='post',
             color=fc,
             alpha=alpha,
