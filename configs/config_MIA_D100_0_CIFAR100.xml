@@ -1,6 +1,6 @@
-<fedwork_cfg name="fedala_mia_comparison" num_of_nodes="10" net_port="36525" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
+<fedwork_cfg name="fedala_mia_comparison_noniid100" num_of_nodes="10" net_port="36528" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
 	<dataset type="CIFAR100">
-		<var name="alpha">0.1</var>
+		<var name="alpha">100</var>
 		<var name="train_batch_size">100</var>
 		<var name="test_batch_size">100</var>
 		<var name="num_workers">0</var>
@@ -9,20 +9,20 @@
 		<var name="dirichlet">True</var>
 	</dataset>
 
-	<localclients learning_rate="0.01" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda:1">10</localclients>
-	<method name="Baseline" type="FedALA" platform="cuda:1">
+	<localclients learning_rate="0.01" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda:0">10</localclients>
+	<method name="Baseline" type="FedALA" platform="cuda:0">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0</var>
 	</method>
-	<method name="FedAvgMixUp" type="FedALA" platform="cuda:1">
+	<method name="FedAvgMixUp" type="FedALA" platform="cuda:0">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0,mixup_alpha=0.4</var>
 	</method>
-	<method name="FedALA_0_3_100" type="FedALA" platform="cuda:1">
+	<method name="FedALA_0_3_100" type="FedALA" platform="cuda:0">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
@@ -34,25 +34,25 @@
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=0.5,alpha=50</var>
 	</method>
-	<method name="FedAvgLDP" type="FedALA" platform="cuda:1">
+	<method name="FedAvgLDP" type="FedALA" platform="cuda:0">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0,ldp_noise_std=0.05</var>
 	</method>
-	<method name="FedAvgRQ" type="FedALA" platform="cuda:1">
+	<method name="FedAvgRQ" type="FedALA" platform="cuda:0">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0,randomized_quantization_levels=256</var>
 	</method>
-	<method name="FedAvgGS" type="FedALA" platform="cuda:1">
+	<method name="FedAvgGS" type="FedALA" platform="cuda:0">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0,gradient_sparsifier=0.2</var>
 	</method>
-	<method name="FedAvgDPSGD" type="FedAvgDPSGD" platform="cuda:1">
+	<method name="FedAvgDPSGD" type="FedAvgDPSGD" platform="cuda:0">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>

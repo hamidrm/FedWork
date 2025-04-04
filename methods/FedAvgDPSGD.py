@@ -23,6 +23,7 @@ class FedAvgDPSGD(FederatedLearningClass):
         super().__init__(method_name, fl_context, method_args)
         self.dp_optimizer = DPSGDOptimizer(self.get_arg(float, "noise_multiplier", 1.0), self.get_arg(float, "max_grad_norm", 1.0))
         self.contributors_percent = float(self.get_arg(int, "contributors_percent", 100)) / 100.0
+        self.lr = 0.01
 
     def get_name(self):
         return "FedAvgDPSGD"

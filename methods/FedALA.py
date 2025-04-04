@@ -21,7 +21,7 @@ class FedALA(FederatedLearningClass):
         super().__init__(method_name, fl_context, method_args)
 
         self.fedmia_attack = None
-        self.lr = 0.1
+        self.lr = 0.01
         self.lcr = self.get_arg(float, "lcr", 1.0)
         self.alpha = self.get_arg(float, "alpha", 0.0)
         self.ldp_noise_std = self.get_arg(float, "ldp_noise_std", 0)
@@ -81,6 +81,12 @@ class FedALA(FederatedLearningClass):
 
 
     def aggregate(self, clients_models, global_model):
+        if self.quantization is not None or self.gradient_sparsifier is not None:
+            for i, client_model in enumerate(clients_models):
+                for key in client_model[1].keys():
+                    if Common.is_trainable(global_model, key):
+                        clients_models[i][1][key] += global_model[key]
+
 
         self.fla.aggregate(clients_models, global_model, self.datasets_weights, 0.0)
         
@@ -156,10 +162,10 @@ class FedALA(FederatedLearningClass):
                         raise ValueError("Quantization values outside uint8 range detected!")
                     quantized_model[key] = quantized_tensor.to(torch.uint8)      
 
-                packet_to_send["tensors"] = quantized_model
-                packet_to_send["scales"] = scale
-                packet_to_send["mins"] = mins
-                return packet_to_send
+            packet_to_send["tensors"] = quantized_model
+            packet_to_send["scales"] = scale
+            packet_to_send["mins"] = mins
+            return packet_to_send
     
         return raw_model
 
