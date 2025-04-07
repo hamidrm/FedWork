@@ -120,12 +120,12 @@ class FedAvgDPSGD(FederatedLearningClass):
         self.dp_optimizer.set_optimizer(client_train_dict["client_optimizer"])
         self.dp_optimizer.zero_grad()
         outputs = client_model(inputs)
-        loss = self.client_training_criterion(criterion, outputs, labels)
+        loss = super().client_training_criterion(criterion, outputs, labels)
         loss.backward()
         self.dp_optimizer.step()
 
         # statistics
-        running_corrects = self.client_training_correctness(outputs, labels)
+        running_corrects = super().client_training_correctness(outputs, labels)
         running_loss = loss.item() * inputs.size(0)
 
 

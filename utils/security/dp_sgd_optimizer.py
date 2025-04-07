@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 
-class DPSGDOptimizer(optim.Optimizer):
+class DPSGDOptimizer:
 
     def __init__(self, noise_multiplier, max_grad_norm, device="cpu", optimizer=None):
         self.noise_multiplier = noise_multiplier
