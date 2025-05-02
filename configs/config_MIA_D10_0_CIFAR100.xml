@@ -1,4 +1,4 @@
-<fedwork_cfg name="fedala_mia_comparison_noniid10" num_of_nodes="10" net_port="36528" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
+<fedwork_cfg name="fedala_mia_comparison_noniid10" num_of_nodes="10" net_port="36520" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
 	<dataset type="CIFAR100">
 		<var name="alpha">10</var>
 		<var name="train_batch_size">100</var>
@@ -9,46 +9,47 @@
 		<var name="dirichlet">True</var>
 	</dataset>
 
-	<localclients learning_rate="0.01" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda:0">10</localclients>
-	<method name="Baseline" type="FedALA" platform="cuda:0">
+	<localclients learning_rate="0.01" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda:1">10</localclients>
+	<method name="Baseline" type="FedALA" platform="cuda:1">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0</var>
 	</method>
-	<method name="FedAvgMixUp" type="FedALA" platform="cuda:0">
+	<method name="FedAvgMixUp" type="FedALA" platform="cuda:1">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0,mixup_alpha=0.4</var>
 	</method>
-	<method name="FedALA_0_3_100" type="FedALA" platform="cuda:0">
+	<method name="FedALA_0_4_80_Q" type="FedALA" platform="cuda:1">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.3,alpha=100</var>
+		<var name="args">lcr=0.4,alpha=80,randomized_quantization_levels=256</var>
 	</method>
-	<method name="FedAvgLDP" type="FedALA" platform="cuda:0">
+	<method name="FedAvgLDP" type="FedALA" platform="cuda:1">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0,ldp_noise_std=0.05</var>
 	</method>
-	<method name="FedAvgRQ" type="FedALA" platform="cuda:0">
+	<method name="FedAvgRQ" type="FedALA" platform="cuda:1">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0,randomized_quantization_levels=256</var>
 	</method>
-	<method name="FedAvgGS" type="FedALA" platform="cuda:0">
+	<method name="FedAvgGS" type="FedALA" platform="cuda:1">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0,gradient_sparsifier=0.2</var>
 	</method>
 	<report save_log="True" log_over_net="141.30.246.151,23456">
-		<fig style="style=bmh;linewidths=1,1,1,1,1,1,1;" name="Link_D1" caption=" " x_axis="round" y_axis_scale="1e-9" y_axis_title="Total Recevied Data (GB)" y_axis="ServerDataRecvBytes" x_axis_title="# Rounds" methods="Baseline,FedALA_0_3_100,FedAvgRQ" labels="Baseline,FedALA,Randomized Quantization (8-bit)" />
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:;linewidths=1,1,1,1,1,1;" name="MIA_TPR_D1" caption=" " x_axis="round" y_axis="MIA_TPRS_0_01" y_axis_title="TPR@FPR1%" x_axis_title="# Rounds" methods="Baseline,FedAvgMixUp,FedALA_0_3_100,FedAvgLDP,FedAvgRQ,FedAvgGS" labels="FedAvg (Baseline),MixUp,FedALA (Ours),Local DP,Randomized Quantization (8-bit),Gradient Sparsification"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:;linewidths=1,1,1,1,1,1;" name="Accuracy_D1" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="Baseline,FedAvgMixUp,FedALA_0_3_100,FedAvgLDP,FedAvgRQ,FedAvgGS" labels="FedAvg (Baseline),MixUp,FedALA (Ours),Local DP,Randomized Quantization (8-bit),Gradient Sparsification"/>
+		<fig style="style=bmh;linewidths=1,1,1,1,1,1,1;" name="Link_D1" caption=" " x_axis="round" y_axis_scale="1e-9" y_axis_title="Total Recevied Data (GB)" y_axis="ServerDataRecvBytes" x_axis_title="# Rounds" methods="Baseline,FedALA_0_4_80_Q,FedAvgRQ" labels="Baseline,FedALA,Randomized Quantization (8-bit)" />
+		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:;linewidths=1,1,1,1,1,1;" name="MIA_TPR_D1" caption=" " x_axis="round" y_axis="MIA_TPRS_0_01" y_axis_title="TPR@FPR1%" x_axis_title="# Rounds" methods="Baseline,FedAvgMixUp,FedALA_0_4_80_Q,FedAvgLDP,FedAvgRQ,FedAvgGS" labels="FedAvg (Baseline),MixUp,FedALA (Ours),Local DP,Randomized Quantization (8-bit),Gradient Sparsification"/>
+		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:;linewidths=1,1,1,1,1,1;" name="MIA_AUC_D1" caption=" " x_axis="round" y_axis="MIA_AUC" y_axis_title="TPR@FPR1%" x_axis_title="# Rounds" methods="Baseline,FedAvgMixUp,FedALA_0_4_80_Q,FedAvgLDP,FedAvgRQ,FedAvgGS" labels="FedAvg (Baseline),MixUp,FedALA (Ours),Local DP,Randomized Quantization (8-bit),Gradient Sparsification"/>
+		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:;linewidths=1,1,1,1,1,1;" name="Accuracy_D1" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="Baseline,FedAvgMixUp,FedALA_0_4_80_Q,FedAvgLDP,FedAvgRQ,FedAvgGS" labels="FedAvg (Baseline),MixUp,FedALA (Ours),Local DP,Randomized Quantization (8-bit),Gradient Sparsification"/>
 	</report>
 </fedwork_cfg>

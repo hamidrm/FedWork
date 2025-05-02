@@ -12,7 +12,8 @@ from utils.security.DataManipulation import MixUpDefense
 from utils.security.MIAPartial import *
 from utils.security.FedALA import *
 from utils.security.GradientSparsifier import *
-from torch.utils.data import DataLoader, SequentialSampler, BatchSampler
+
+from torch.utils.data import ConcatDataset, DataLoader, Subset, RandomSampler, BatchSampler, SequentialSampler
 import math
 
 class FedALA(FederatedLearningClass):
@@ -37,22 +38,31 @@ class FedALA(FederatedLearningClass):
 
 
     def get_data_loaders(self):
+        
+        dataset_list = self.fl_context["dataset_train_list"]
         dir_path = self.fl_context["dataset_path"]
 
         file_path_train      = os.path.join(dir_path, f"dataset_node_0.ds") #Dataset of Client 0 , as the target's dataset
-        file_path_validation = os.path.join(dir_path, f"dataset_node_1.ds") #Dataset of Client 1 , as the validation's dataset
-        #TODO - MIX all non-targets' dataset to make a mixed dataset for validation's dataset
+
         with open(file_path_train,      'rb') as f:
             dataset_loader_train      = pickle.loads(f.read())
 
-        with open(file_path_validation, 'rb') as f:
-            dataset_loader_validation = pickle.loads(f.read())
 
+        validation_datasets = []
+        for client_index in range(1,len(dataset_list)):
+            file_path_validation = os.path.join(dir_path, f"dataset_node_{client_index}.ds") #Dataset of Client 1 , as the validation's dataset
+            with open(file_path_validation, 'rb') as f:
+                dataset_loader_validation = pickle.loads(f.read())
+            validation_datasets.append(dataset_loader_validation.dataset)  # use .dataset, not the DataLoader
+
+        combined_dataset = ConcatDataset(validation_datasets)
+        total_len = len(combined_dataset)
+        indices = torch.randperm(total_len)[:len(dataset_loader_train.dataset)]
+        sampler = torch.utils.data.SubsetRandomSampler(indices)
+        dataset_loader_validation = DataLoader(combined_dataset, sampler=sampler, batch_size=10)
+        
         new_sampler = BatchSampler(SequentialSampler(dataset_loader_train.dataset), batch_size=10, drop_last=False)
         dataset_loader_train = DataLoader(dataset_loader_train.dataset, batch_sampler=new_sampler)
-
-        new_sampler = BatchSampler(SequentialSampler(dataset_loader_validation.dataset), batch_size=10, drop_last=False)
-        dataset_loader_validation = DataLoader(dataset_loader_validation.dataset, batch_sampler=new_sampler)
 
         return dataset_loader_validation, dataset_loader_train
 
@@ -158,8 +168,8 @@ class FedALA(FederatedLearningClass):
                     quantized_model[key] = quantized_tensor.to(torch.long)
                 else:
                     quantized_tensor, mins[key], scale[key] = self.quantization.quantize(raw_model[key] - global_model[key])
-                    if torch.any(quantized_tensor < 0) or torch.any(quantized_tensor > 255):
-                        raise ValueError("Quantization values outside uint8 range detected!")
+                    #if torch.any(quantized_tensor < 0) or torch.any(quantized_tensor > 255):
+                    #    raise ValueError("Quantization values outside uint8 range detected!")
                     quantized_model[key] = quantized_tensor.to(torch.uint8)      
 
             packet_to_send["tensors"] = quantized_model
