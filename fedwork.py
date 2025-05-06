@@ -14,6 +14,7 @@ import dataset.dataset as DS
 from core.Server import *
 import torch.optim as optim
 from utils.plotter import Plotter
+from methods.FedALA import FedALA
 
 class fedwork:
     def __init__(self):
@@ -358,7 +359,7 @@ class fedwork:
             self.fl_context["methods_list"][method_name]["platform"] = method_platform
 
             # Load the method for Server-side requests
-            method_obj = self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
+            method_obj = FedALA(method_name, self.fl_context, method_args)#self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
             
             server = Server(IpAddr(net_ip, net_port), method_obj, test_dataset, global_model, loss_func, method_platform)
 
@@ -413,7 +414,7 @@ class fedwork:
                         model = arch.CreateModel().to(method_platform)
 
                         # Load the method for Client-side requests
-                        method_obj = self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
+                        method_obj = FedALA(method_name, self.fl_context, method_args)#self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
                         
                         new_client = Client(f"Client{client_id}", client_id, IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform)
                         self.local_clients.append(new_client)

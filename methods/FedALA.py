@@ -38,10 +38,19 @@ class FedALA(FederatedLearningClass):
 
 
     def get_data_loaders(self):
-        
         dataset_list = self.fl_context["dataset_train_list"]
         dir_path = self.fl_context["dataset_path"]
-
+        
+        mia_dataset_train_path      = os.path.join(dir_path, f"mia_dataset_train.ds")
+        mia_dataset_validation_path      = os.path.join(dir_path, f"mia_dataset_validation.ds")
+        
+        if os.path.isfile(mia_dataset_train_path) and os.path.isfile(mia_dataset_validation_path):
+            with open(mia_dataset_validation_path,      'rb') as f:
+                dataset_loader_validation      = pickle.loads(f.read())
+            with open(mia_dataset_train_path,      'rb') as f:
+                dataset_loader_train      = pickle.loads(f.read())
+            return dataset_loader_validation, dataset_loader_train
+        
         file_path_train      = os.path.join(dir_path, f"dataset_node_0.ds") #Dataset of Client 0 , as the target's dataset
 
         with open(file_path_train,      'rb') as f:
@@ -53,7 +62,7 @@ class FedALA(FederatedLearningClass):
             file_path_validation = os.path.join(dir_path, f"dataset_node_{client_index}.ds") #Dataset of Client 1 , as the validation's dataset
             with open(file_path_validation, 'rb') as f:
                 dataset_loader_validation = pickle.loads(f.read())
-            validation_datasets.append(dataset_loader_validation.dataset)  # use .dataset, not the DataLoader
+            validation_datasets.append(dataset_loader_validation.dataset) 
 
         combined_dataset = ConcatDataset(validation_datasets)
         total_len = len(combined_dataset)
@@ -64,6 +73,12 @@ class FedALA(FederatedLearningClass):
         new_sampler = BatchSampler(SequentialSampler(dataset_loader_train.dataset), batch_size=10, drop_last=False)
         dataset_loader_train = DataLoader(dataset_loader_train.dataset, batch_sampler=new_sampler)
 
+
+        with open(mia_dataset_validation_path,      'wb') as f:
+            f.write(pickle.dumps(dataset_loader_validation))
+        with open(mia_dataset_train_path,      'wb') as f:
+            f.write(pickle.dumps(dataset_loader_train))
+                
         return dataset_loader_validation, dataset_loader_train
 
 

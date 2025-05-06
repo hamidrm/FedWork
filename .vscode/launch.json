@@ -3,12 +3,12 @@
     "configurations": [
         {
             "name": "FedWork",
-            "type": "debugpy",
+            "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/fedwork.py",
             "console": "integratedTerminal",
             "args": [
-                "config_fedalaq_0_1_cifar100.xml"
+                "config_MIA_D100_0_CIFAR100.xml"
             ]
         }
     ]

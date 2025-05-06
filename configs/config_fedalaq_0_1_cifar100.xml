@@ -1,4 +1,4 @@
-<fedwork_cfg name="fedala_mia_comparison_0_1" num_of_nodes="10" net_port="36525" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="500">
+<fedwork_cfg name="fedala_mia_comparison_0_1_2" num_of_nodes="10" net_port="36515" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
 	<dataset type="CIFAR100">
 		<var name="alpha">0.1</var>
 		<var name="train_batch_size">100</var>
