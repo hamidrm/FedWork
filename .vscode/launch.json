@@ -8,7 +8,7 @@
             "program": "${workspaceFolder}/fedwork.py",
             "console": "integratedTerminal",
             "args": [
-                "config_MIA_D100_0_CIFAR100.xml"
+                "config_fedalaq_1_0_cifar100.xml"
             ]
         }
     ]

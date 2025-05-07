@@ -69,8 +69,16 @@ class fedwork:
                         data = f.read()
                         dataset_test = pickle.loads(data)
 
+                    file_path = os.path.join(dir_path, f"dataset_train.ds")
+                    
+                    if not os.path.exists(file_path):
+                        break
+                    with open(file_path, 'rb') as f:
+                        dataset_train = pickle.loads(f.read())
+                        
                     self.fl_context["dataset_train_list"] = dataset_train_list
                     self.fl_context["dataset_train_test"] = dataset_test
+                    self.fl_context["dataset_train"] = dataset_train
                     return dataset_train_list, dataset_test
 
         vars = dataset_cfg["var"]
@@ -86,7 +94,7 @@ class fedwork:
 
         if non_iid_alpha != sys.float_info.min:
             non_iid_level = non_iid_alpha
-        dataset_train_list, dataset_test = DS.create_datasets(num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level, train_batch_size, test_batch_size, use_dirichlet, num_workers, save_graph, enclose_info, dir_path)
+        dataset_train, dataset_train_list, dataset_test = DS.create_datasets(num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level, train_batch_size, test_batch_size, use_dirichlet, num_workers, save_graph, enclose_info, dir_path)
 
 
         if not os.path.exists(dir_path):
@@ -104,7 +112,13 @@ class fedwork:
         with open(file_path, 'wb') as f:
             f.write(data)
 
+        file_path = os.path.join(dir_path, f"dataset_train.ds")
+        data = pickle.dumps(dataset_train)
+        with open(file_path, 'wb') as f:
+            f.write(data)
+            
         self.fl_context["dataset_train_list"] = dataset_train_list
+        self.fl_context["dataset_train"] = dataset_train
         self.fl_context["dataset_train_test"] = dataset_test
         return dataset_train_list, dataset_test
         

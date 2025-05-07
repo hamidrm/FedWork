@@ -39,6 +39,7 @@ class FedALA(FederatedLearningClass):
 
     def get_data_loaders(self):
         dataset_list = self.fl_context["dataset_train_list"]
+        dataset_train = self.fl_context["dataset_train"]
         dir_path = self.fl_context["dataset_path"]
         
         mia_dataset_train_path      = os.path.join(dir_path, f"mia_dataset_train.ds")
@@ -57,21 +58,24 @@ class FedALA(FederatedLearningClass):
             dataset_loader_train      = pickle.loads(f.read())
 
 
-        validation_datasets = []
-        for client_index in range(1,len(dataset_list)):
-            file_path_validation = os.path.join(dir_path, f"dataset_node_{client_index}.ds") #Dataset of Client 1 , as the validation's dataset
-            with open(file_path_validation, 'rb') as f:
-                dataset_loader_validation = pickle.loads(f.read())
-            validation_datasets.append(dataset_loader_validation.dataset) 
-
-        combined_dataset = ConcatDataset(validation_datasets)
-        total_len = len(combined_dataset)
-        indices = torch.randperm(total_len)[:len(dataset_loader_train.dataset)]
-        sampler = torch.utils.data.SubsetRandomSampler(indices)
-        dataset_loader_validation = DataLoader(combined_dataset, sampler=sampler, batch_size=10)
         
         new_sampler = BatchSampler(SequentialSampler(dataset_loader_train.dataset), batch_size=10, drop_last=False)
-        dataset_loader_train = DataLoader(dataset_loader_train.dataset, batch_sampler=new_sampler)
+        dataset_loader_train = DataLoader(dataset_loader_train.dataset, batch_sampler=new_sampler, num_workers=8)
+
+        client0_indices = dataset_loader_train.dataset.indices if hasattr(dataset_loader_train.dataset, 'indices') \
+            else list(range(len(dataset_loader_train.dataset)))
+
+        all_indices = set(range(len(dataset_train)))
+
+        non_member_pool = list(all_indices - set(client0_indices))
+
+        same_length = len(client0_indices)
+        random.seed(1)
+        non_member_sample = random.sample(non_member_pool, same_length)
+
+        non_member_dataset = Subset(dataset_train, non_member_sample)
+
+        dataset_loader_validation = DataLoader(non_member_dataset, batch_size=10, shuffle=True, num_workers=8)
 
 
         with open(mia_dataset_validation_path,      'wb') as f:
