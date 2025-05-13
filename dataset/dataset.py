@@ -322,4 +322,4 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         full_path = os.path.join(dir_path, f"dataset_distribution_{time_str}_sbp.pdf")
         plt.savefig(full_path, format="pdf", bbox_inches="tight")
 
-    return train_dataset, train_datasets, test_dataset_loader
+    return train_datasets, test_dataset_loader

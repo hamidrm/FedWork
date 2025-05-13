@@ -36,53 +36,25 @@ class FedALA(FederatedLearningClass):
         self.gradient_sparsifier = GradientSparsifier(self.gradient_sparsifier_ratio) if self.gradient_sparsifier_ratio != 1.0 else None
         self.quantization = RandomizedQuantizer(self.q_levels) if self.q_levels != 0 else None
 
-
+    
     def get_data_loaders(self):
-        dataset_list = self.fl_context["dataset_train_list"]
-        dataset_train = self.fl_context["dataset_train"]
         dir_path = self.fl_context["dataset_path"]
-        
-        mia_dataset_train_path      = os.path.join(dir_path, f"mia_dataset_train.ds")
-        mia_dataset_validation_path      = os.path.join(dir_path, f"mia_dataset_validation.ds")
-        
-        if os.path.isfile(mia_dataset_train_path) and os.path.isfile(mia_dataset_validation_path):
-            with open(mia_dataset_validation_path,      'rb') as f:
-                dataset_loader_validation      = pickle.loads(f.read())
-            with open(mia_dataset_train_path,      'rb') as f:
-                dataset_loader_train      = pickle.loads(f.read())
-            return dataset_loader_validation, dataset_loader_train
-        
-        file_path_train      = os.path.join(dir_path, f"dataset_node_0.ds") #Dataset of Client 0 , as the target's dataset
 
+        file_path_train      = os.path.join(dir_path, f"dataset_node_0.ds") #Dataset of Client 0 , as the target's dataset
+        file_path_validation = os.path.join(dir_path, f"dataset_node_1.ds") #Dataset of Client 1 , as the validation's dataset
+        #TODO - MIX all non-targets' dataset to make a mixed dataset for validation's dataset
         with open(file_path_train,      'rb') as f:
             dataset_loader_train      = pickle.loads(f.read())
 
+        with open(file_path_validation, 'rb') as f:
+            dataset_loader_validation = pickle.loads(f.read())
 
-        
         new_sampler = BatchSampler(SequentialSampler(dataset_loader_train.dataset), batch_size=10, drop_last=False)
-        dataset_loader_train = DataLoader(dataset_loader_train.dataset, batch_sampler=new_sampler, num_workers=8)
+        dataset_loader_train = DataLoader(dataset_loader_train.dataset, batch_sampler=new_sampler)
 
-        client0_indices = dataset_loader_train.dataset.indices if hasattr(dataset_loader_train.dataset, 'indices') \
-            else list(range(len(dataset_loader_train.dataset)))
+        new_sampler = BatchSampler(SequentialSampler(dataset_loader_validation.dataset), batch_size=10, drop_last=False)
+        dataset_loader_validation = DataLoader(dataset_loader_validation.dataset, batch_sampler=new_sampler)
 
-        all_indices = set(range(len(dataset_train)))
-
-        non_member_pool = list(all_indices - set(client0_indices))
-
-        same_length = len(client0_indices)
-        random.seed(1)
-        non_member_sample = random.sample(non_member_pool, same_length)
-
-        non_member_dataset = Subset(dataset_train, non_member_sample)
-
-        dataset_loader_validation = DataLoader(non_member_dataset, batch_size=10, shuffle=True, num_workers=8)
-
-
-        with open(mia_dataset_validation_path,      'wb') as f:
-            f.write(pickle.dumps(dataset_loader_validation))
-        with open(mia_dataset_train_path,      'wb') as f:
-            f.write(pickle.dumps(dataset_loader_train))
-                
         return dataset_loader_validation, dataset_loader_train
 
 
