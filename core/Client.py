@@ -176,7 +176,7 @@ class Client:
             self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_EPOCH_DONE, 0, epoch_info)
         
         if self.method != None:
-            packed_data = self.method.pack_client_model(self.client_model.state_dict(), global_model = self.global_model.state_dict())
+            packed_data = self.method.pack_client_model(self.client_model.state_dict(), global_model = self.global_model.state_dict(), id = self.id)
             self.client_comm.send_data_to_server(packed_data)
         self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_TRAINNING_DONE, 0)
         self.is_training_lock.release()

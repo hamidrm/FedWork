@@ -61,7 +61,7 @@ class FederatedLearningClass(ABC):
         else:
             return None
     
-    def pack_client_model(self, raw_model, global_model):
+    def pack_client_model(self, raw_model, global_model, id):
         return raw_model
 
     def unpack_client_model(self, packed_model):

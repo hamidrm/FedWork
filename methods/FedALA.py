@@ -140,8 +140,8 @@ class FedALA(FederatedLearningClass):
             return None
 
 
-    def pack_client_model(self, raw_model, global_model):
-        raw_model = self.fla.build_packet(raw_model, global_model)
+    def pack_client_model(self, raw_model, global_model, id):
+        raw_model = self.fla.build_packet(raw_model, global_model, id)
 
 
         if self.gradient_sparsifier is not None:
