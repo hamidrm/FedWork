@@ -16,6 +16,9 @@ class BaseArch(Enum):
     AlexNet = "AlexNet"
     AlexNetMini = "AlexNetMini"
     ResNet50 = "ResNet50"
+    MobileNetV2 = "MobileNetV2"
+    ShuffleNetV2 = "ShuffleNetV2"
+    AllCNN = "AllCNN"
 
 class ActivationFunction(Enum):
     ReLUFunction = "relu"

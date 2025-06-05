@@ -28,12 +28,6 @@
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=0.3,alpha=100,randomized_quantization_levels=256</var>
 	</method>
-	<method name="FedALA_0_4_80_Q" type="FedALA" platform="cuda:0">
-		<arch type="ResNet18">
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.3,alpha=100,randomized_quantization_levels=256</var>
-	</method>
 	<method name="FedAvgLDP" type="FedALA" platform="cuda:0">
 		<arch type="ResNet18">
 		</arch>

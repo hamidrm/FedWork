@@ -8,7 +8,7 @@
             "program": "${workspaceFolder}/fedwork.py",
             "console": "integratedTerminal",
             "args": [
-                "config_MIA_D0_1_CIFAR100_2.xml"
+                "config_MIA_D0_1_PATHMNIST.xml"
             ]
         }
     ]

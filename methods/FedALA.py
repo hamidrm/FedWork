@@ -7,7 +7,7 @@ import torch.nn as nn
 from utils.logger import *
 from utils.profiler import *
 from utils.common import Common
-from utils.quantization import RandomizedQuantizer
+from utils.quantization import UniformQuantizer
 from utils.security.DataManipulation import MixUpDefense
 from utils.security.MIAPartial import *
 from utils.security.FedALA import *
@@ -34,7 +34,7 @@ class FedALA(FederatedLearningClass):
         self.fla = FedALADefense(self.lcr, self.alpha, self.ldp_noise_std)
         self.mixup = MixUpDefense(self.mixup_alpha)
         self.gradient_sparsifier = GradientSparsifier(self.gradient_sparsifier_ratio) if self.gradient_sparsifier_ratio != 1.0 else None
-        self.quantization = RandomizedQuantizer(self.q_levels) if self.q_levels != 0 else None
+        self.quantization = UniformQuantizer(self.q_levels) if self.q_levels != 0 else None
 
     
     def get_data_loaders(self):
@@ -155,7 +155,7 @@ class FedALA(FederatedLearningClass):
             for key in raw_model.keys():
                 #Skip the statstical parameters
                 if not Common.is_trainable(raw_model, key):
-                    quantized_tensor, mins[key], scale[key] = raw_model[key], 0, 0
+                    quantized_tensor, mins[key], scale[key] = raw_model[key], 0, -1
                     quantized_model[key] = quantized_tensor.to(torch.long)
                 else:
                     quantized_tensor, mins[key], scale[key] = self.quantization.quantize(raw_model[key] - global_model[key])
@@ -180,7 +180,7 @@ class FedALA(FederatedLearningClass):
             scale = packed_model["scales"]
             mins = packed_model["mins"]
             for key in quantized_model.keys():
-                if scale[key] == 0:
+                if scale[key] == -1:
                     dequantized_model[key] = quantized_model[key]
                 else:
                     dequantized_model[key] = self.quantization.dequantize(quantized_model[key], mins[key], scale[key])

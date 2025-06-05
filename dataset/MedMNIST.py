@@ -83,7 +83,5 @@ class MedMNIST(MedMNIST2D):
         return len(self.imgs)
     
     def __getitem__(self, index):
-
         img, target = super().__getitem__(index)
-
-        return img, int(target[0].item())
+        return img, int(target.item())
