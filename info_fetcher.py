@@ -22,26 +22,54 @@ def main():
         print("Failed to load data. Exiting.")
         return
 
-    # Check if "method_info" key exists
-    if "method_info" not in data:
-        print("Error: 'method_info' key not found in the file.")
-        return
+    key = input("\nEnter a key to view its value: ").strip()
 
-    method_info = data["method_info"]
-    
-    print("\nAvailable keys in 'method_info':")
-    for key in method_info.keys():
-        print(f" - {key}")
+    if key == "method":
+        # Check if "method_info" key exists
+        if "method_info" not in data:
+            print("Error: 'method_info' key not found in the file.")
+            return
 
-    while True:
-        key = input("\nEnter a key to view its value (or type 'exit' to quit): ").strip()
+        method_info = data["method_info"]
         
-        if key.lower() == 'exit':
-            break
-        elif key in method_info:
-            print(f"\nValue of '{key}':\n{method_info[key]}\n")
+        print("\nAvailable keys in 'method_info':")
+        for key in method_info.keys():
+            print(f" - {key}")
+
+        while True:
+            key = input("\nEnter a key to view its value (or type 'exit' to quit): ").strip()
+            
+            if key.lower() == 'exit':
+                break
+            elif key in method_info:
+                print(f"\nValue of '{key}':\n{method_info[key]}\n")
+            else:
+                print("Invalid key! Please enter a valid key from the list.")
+    else:
+        probes_times_prof = data["time_profiles"]
+        probes_vars = data["var_values"]
+        probes_var_changes = data["var_changes"]
+        
+        if key in probes_times_prof:
+            value = probes_times_prof[key]
+        elif key in probes_vars:
+            value = probes_vars[key]
+        elif key in probes_var_changes:
+            value = probes_var_changes[key]
         else:
-            print("Invalid key! Please enter a valid key from the list.")
+            return
+
+        if type(value) == list:
+            while True:
+                index = input("\nEnter the index: ").strip()
+                if index == "exit":
+                    break
+                index = int(index)
+                if int(index) >= len(value):
+                    print("Invalid index! Please enter a valid index")
+                    continue
+                
+                print(f"\nValue of '{key}' at '{index}':\n{value[index]}\n")
 
 if __name__ == "__main__":
     main()

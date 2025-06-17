@@ -36,6 +36,16 @@ class FedALA(FederatedLearningClass):
         self.gradient_sparsifier = GradientSparsifier(self.gradient_sparsifier_ratio) if self.gradient_sparsifier_ratio != 1.0 else None
         self.quantization = UniformQuantizer(self.q_levels) if self.q_levels != 0 else None
 
+
+        seed = 42
+        random.seed(seed)                        # Python random
+        np.random.seed(seed)                     # NumPy
+        torch.manual_seed(seed)                  # PyTorch CPU
+        torch.cuda.manual_seed(seed)             # PyTorch GPU
+        torch.cuda.manual_seed_all(seed)         # All GPUs (if using multi-GPU)
+        
+        torch.backends.cudnn.deterministic = True   # Deterministic operations
+        torch.backends.cudnn.benchmark = False      # Disable optimization for reproducibility
     
     def get_data_loaders(self):
         dir_path = self.fl_context["dataset_path"]
