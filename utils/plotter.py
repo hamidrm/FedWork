@@ -86,22 +86,97 @@ class Plotter:
 
 
     def plot_begin(self, style_str):
-        plt.figure()
+        figure_size_wh = None
+        
 
-        plt.style.use('default')
+        if "figure_size=" in style_str:
+            figure_size_wh = style_str.split("figure_size=")[1].split(";")[0].strip().split(",")
+
+        if figure_size_wh is None:
+            plt.figure()
+        else:
+            plt.figure(figsize=(float(figure_size_wh[0]), float(figure_size_wh[1])))
         if "style=" in style_str:
             style = style_str.split("style=")[1].split(";")[0].strip()
             plt.style.use(style)
-        plt.rcParams["font.family"] = "Noto Mono"
+        
+        
+        plt.style.use('default')
 
 
-    def plot_end(self, x_axis_title, y_axis_title, fig_caption, output_path):
 
-        plt.xlabel(x_axis_title,fontsize=10, family='Noto Mono')
-        plt.ylabel(y_axis_title,fontsize=10, family='Noto Mono')
-        plt.title(fig_caption,fontsize=10, family='Noto Mono')
-        plt.legend(frameon=True,fontsize="small")
-        plt.grid(True, which='both', linestyle='--', linewidth=0.5, color='gray')
+
+        plt.rcParams["font.family"] = "serif"
+        plt.rcParams["font.size"] = 12
+
+    def plot_end(self, x_axis_title, y_axis_title, fig_caption, style_str, output_path):
+
+        legend_pos = "best"
+        y_axis_scale = None
+        legend_font_size = "small"
+        title_font_size = 10
+        axis_font_size = 10
+        font_family = 'serif'
+        legend_status = None
+        legend_ncol = 1
+        bbox_to_anchor_xy = None
+        
+        if "legend_status=" in style_str:
+            legend_status = style_str.split("legend_status=")[1].split(";")[0].strip()
+
+        if "legend_ncol=" in style_str:
+            legend_ncol = int(style_str.split("legend_ncol=")[1].split(";")[0].strip())
+        
+        if "bbox_to_anchor=" in style_str:
+            bbox_to_anchor_xy = style_str.split("bbox_to_anchor=")[1].split(";")[0].strip().split(",")
+                
+        if "legend_pos=" in style_str:
+            legend_pos = style_str.split("legend_pos=")[1].split(";")[0].strip()
+            legend_pos = legend_pos.replace('_', ' ')
+        
+        if "y_axis_scale=" in style_str:
+            y_axis_scale = style_str.split("y_axis_scale=")[1].split(";")[0].strip().split(",")
+      
+        if "legend_font_size=" in style_str:
+            legend_font_size = style_str.split("legend_font_size=")[1].split(";")[0].strip()
+              
+        if "title_font_size=" in style_str:
+            title_font_size = style_str.split("title_font_size=")[1].split(";")[0].strip()
+
+        if "axis_font_size=" in style_str:
+            axis_font_size = style_str.split("axis_font_size=")[1].split(";")[0].strip()
+
+        if "font_family=" in style_str:
+            font_family = style_str.split("font_family=")[1].split(";")[0].strip()
+
+
+        plt.xlabel(x_axis_title,fontsize=axis_font_size, family=font_family)
+        plt.ylabel(y_axis_title,fontsize=axis_font_size, family=font_family)
+        plt.title(fig_caption,fontsize=title_font_size, family=font_family)
+        plt.xticks(fontsize=axis_font_size)
+        plt.yticks(fontsize=axis_font_size)        
+
+
+        if legend_status is not None:
+            if legend_status == "on":
+                if bbox_to_anchor_xy is None:
+                    plt.legend(frameon=True,fontsize=legend_font_size, loc=legend_pos, ncol=legend_ncol)
+                else:
+                    plt.legend(frameon=True,fontsize=legend_font_size, bbox_to_anchor=(float(bbox_to_anchor_xy[0]), float(bbox_to_anchor_xy[1])), loc=legend_pos, ncol=legend_ncol)
+            elif legend_status != "off":
+                logger.warninig("Invalid value for 'legend_status' in the defined style.")
+        else:
+            if bbox_to_anchor_xy is None:
+                plt.legend(frameon=True,fontsize=legend_font_size, loc=legend_pos, ncol=legend_ncol)
+            else:
+                plt.legend(frameon=True,fontsize=legend_font_size, bbox_to_anchor=(bbox_to_anchor_xy[0], bbox_to_anchor_xy[1]), loc=legend_pos, ncol=legend_ncol)
+            
+        if y_axis_scale is not None:
+            plt.ylim(float(y_axis_scale[0]), float(y_axis_scale[1]))
+
+        
+
+        plt.grid(True, which='major', linestyle='--', linewidth=0.4, alpha=0.6)
         plt.savefig(output_path, format="pdf", bbox_inches="tight")
         plt.close()
         
@@ -111,6 +186,27 @@ class Plotter:
         linestyles = None
         linewidths = None
         markers = None
+        colors_map = None
+        
+        
+        if "linewidths=" in style_str:
+            linewidths = list(map(float, style_str.split("linewidths=")[1].split(";")[0].strip().split(",")))
+    
+        if "colors_map=" in style_str:
+            colors_map = style_str.split("colors_map=")[1].split(";")[0].strip()
+            num_colors = len(linewidths)
+            if colors_map == "tab10":
+                colors = plt.cm.tab10(np.linspace(0, 1, num_colors))
+                c = colors[style_index]
+            elif colors_map == "Set2":
+                colors = plt.cm.Set2(np.linspace(0, 1, num_colors))
+                c = colors[style_index]
+            elif colors_map == "husl":
+                colors = plt.cm.husl(np.linspace(0, 1, num_colors))
+                c = colors[style_index]
+            else:
+                logger.warning("Invalid color map!")
+            
         
         if "colors=" in style_str:
             colors = style_str.split("colors=")[1].split(";")[0].strip().split(",")
@@ -118,9 +214,6 @@ class Plotter:
         if "linestyles=" in style_str:
             linestyles = style_str.split("linestyles=")[1].split(";")[0].strip().split(",")
         
-        if "linewidths=" in style_str:
-            linewidths = list(map(float, style_str.split("linewidths=")[1].split(";")[0].strip().split(",")))
-    
         if "markers=" in style_str:
             markers = style_str.split("markers=")[1].split(";")[0].strip().split(",")
         
@@ -161,5 +254,5 @@ class Plotter:
         y = convert_to_numpy(y)
 
 
-        plt.plot(x, y, label=label, color=c, linestyle=ls, linewidth=lw, marker=m)
+        plt.plot(x, y, alpha=0.9, label=label, color=c, linestyle=ls, linewidth=lw, marker=m)
 

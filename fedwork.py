@@ -758,7 +758,7 @@ class fedwork:
                 y_axis_title = fig[attr_y_axis_title]
 
             figure_path = os.path.join(output_path, f'{name}.pdf')
-            self.plotter.plot_end(x_axis_title, y_axis_title, fig_caption, figure_path)
+            self.plotter.plot_end(x_axis_title, y_axis_title, fig_caption, style, figure_path)
 
 
     def get_config(self, file_name):

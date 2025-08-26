@@ -1,6 +1,6 @@
-<fedwork_cfg name="fedala_lcr_alpha_mobilenetv2_2" num_of_nodes="10" net_port="36575" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="100">
+<fedwork_cfg name="fedala_lcr_alpha_resnet18_cifar100_d0_1_3" num_of_nodes="10" net_port="36325" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="200">
 	<dataset type="MedMNIST-PathMNIST">
-		<var name="alpha">1</var>
+		<var name="alpha">0.5</var>
 		<var name="train_batch_size">100</var>
 		<var name="test_batch_size">100</var>
 		<var name="num_workers">0</var>
@@ -9,235 +9,136 @@
 		<var name="dirichlet">True</var>
 	</dataset>
 
-	<localclients learning_rate="0.01" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda:1">10</localclients>
-	<method name="Baseline" type="FedALA" platform="cuda:1">
+	<localclients learning_rate="0.01" optimizer="SGD" platform="cuda:0">10</localclients>
+	<method name="Baseline" type="FedALA" platform="cuda:0">
 		<arch type="MobileNetV2">
 			<var name="WidthMult">1.0</var>
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=1,alpha=0</var>
 	</method>
-<!-- 	<method name="FedAvgMixUp" type="FedALA" platform="cuda:1">
+
+	<method name="FedALA_0_3_0" type="FedALA" platform="cuda:0">
 		<arch type="MobileNetV2">
 			<var name="WidthMult">1.0</var>
 		</arch>
 		<var name="epochs_num">1</var>
-		<var name="args">lcr=1,alpha=0,mixup_alpha=0.4</var>
-	</method> -->
-
-
-	<method name="FedALA_0_1_10" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=10</var>
+		<var name="args">lcr=0.3,alpha=0</var>
 	</method>
-	<method name="FedALA_0_3_10" type="FedALA" platform="cuda:1">
+	<method name="FedALA_0_3_1" type="FedALA" platform="cuda:0">
+		<arch type="MobileNetV2">
+			<var name="WidthMult">1.0</var>
+		</arch>
+		<var name="epochs_num">1</var>
+		<var name="args">lcr=0.3,alpha=1</var>
+	</method>
+	<method name="FedALA_0_3_4" type="FedALA" platform="cuda:0">
+		<arch type="MobileNetV2">
+			<var name="WidthMult">1.0</var>
+		</arch>
+		<var name="epochs_num">1</var>
+		<var name="args">lcr=0.3,alpha=4</var>
+	</method>
+	<method name="FedALA_0_3_8" type="FedALA" platform="cuda:0">
+		<arch type="MobileNetV2">
+			<var name="WidthMult">1.0</var>
+		</arch>
+		<var name="epochs_num">1</var>
+		<var name="args">lcr=0.3,alpha=8</var>
+	</method>
+	<method name="FedALA_0_3_10" type="FedALA" platform="cuda:0">
 		<arch type="MobileNetV2">
 			<var name="WidthMult">1.0</var>
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=0.3,alpha=10</var>
 	</method>
-	<method name="FedALA_0_5_10" type="FedALA" platform="cuda:1">
+	<method name="FedALA_0_3_50" type="FedALA" platform="cuda:0">
 		<arch type="MobileNetV2">
 			<var name="WidthMult">1.0</var>
 		</arch>
 		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.5,alpha=10</var>
+		<var name="args">lcr=0.3,alpha=50</var>
 	</method>
-	<method name="FedALA_0_7_10" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.7,alpha=10</var>
-	</method>
-
-
-	<method name="FedALA_0_5_1" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.5,alpha=1</var>
-	</method>
-	<method name="FedALA_0_5_10" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.5,alpha=10</var>
-	</method>
-	<method name="FedALA_0_5_50" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.5,alpha=50</var>
-	</method>
-	<method name="FedALA_0_5_100" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.5,alpha=100</var>
-	</method>
-
-	<method name="FedALA_0_1_100" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=100</var>
-	</method>
-	<method name="FedALA_0_3_100" type="FedALA" platform="cuda:1">
+	<method name="FedALA_0_3_100" type="FedALA" platform="cuda:0">
 		<arch type="MobileNetV2">
 			<var name="WidthMult">1.0</var>
 		</arch>
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=0.3,alpha=100</var>
 	</method>
-	<method name="FedALA_0_5_100" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.5,alpha=100</var>
-	</method>
-	<method name="FedALA_0_7_100" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.7,alpha=100</var>
-	</method>
 
 
-<method name="FedALA_0_1_1" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=1</var>
-	</method>
-	<method name="FedALA_0_1_10" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=10</var>
-	</method>
-	<method name="FedALA_0_1_50" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=50</var>
-	</method>
-	<method name="FedALA_0_1_100" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=100</var>
-	</method>
+<report save_log="True" log_over_net="141.30.246.151,23456">
 
-	
-	<method name="FedALA_0_1_20" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=20</var>
-	</method>
-	<method name="FedALA_0_1_30" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=30</var>
-	</method>
-	<method name="FedALA_0_1_40" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=40</var>
-	</method>
-	<method name="FedALA_0_1_60" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=60</var>
-	</method>
-	<method name="FedALA_0_1_70" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=70</var>
-	</method>
-	<method name="FedALA_0_1_80" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=80</var>
-	</method>
-	<method name="FedALA_0_1_90" type="FedALA" platform="cuda:1">
-		<arch type="MobileNetV2">
-			<var name="WidthMult">1.0</var>
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=0.1,alpha=90</var>
-	</method>
+	<!-- Communication Overhead -->
+	<fig name="Communication_Overhead" 
+	     caption="Communication overhead measured by total server data received over training rounds." 
+	     x_axis="round" 
+		 y_axis="ServerDataRecvBytes"
+	     y_axis_scale="8e-9" 
+	     y_axis_title="Total Received Data (GB)" 
+	     x_axis_title="\# Rounds" 
+	     methods="FedALA_0_3_0,FedALA_0_3_1,FedALA_0_3_4,FedALA_0_3_8,FedALA_0_3_10,FedALA_0_3_50,FedALA_0_3_100" 
+	     labels="$\alpha=0$,$\alpha=1$,$\alpha=4$,$\alpha=8$,$\alpha=10$,$\alpha=50$,$\alpha=100$" 
+	     style="style=classic;colors=black,blue,red,green,purple,brown,orange;linestyles=-,--,-.,:,solid,dashed,dotted;linewidths=2,2,2,2,2,2,2"/>
 
-	<report save_log="True" log_over_net="141.30.246.151,23456">
+	<!-- MIA TPR @ 10% FPR -->
+	<fig name="MIA_TPR_10" 
+	     caption="True Positive Rate (TPR) at 10\% False Positive Rate (FPR) for different $\alpha$ values." 
+	     x_axis="round" 
+	     y_axis="MIA_TPRS_0_1" 
+	     y_axis_title="TPR@FPR10\%" 
+	     x_axis_title="\# Rounds" 
+	     methods="Baseline,FedALA_0_3_0,FedALA_0_3_1,FedALA_0_3_4,FedALA_0_3_8,FedALA_0_3_10,FedALA_0_3_50,FedALA_0_3_100" 
+	     labels="Baseline,$\alpha=0$,$\alpha=1$,$\alpha=4$,$\alpha=8$,$\alpha=10$,$\alpha=50$,$\alpha=100$" 
+	     style="style=classic;colors=black,blue,red,green,purple,brown,orange,gray;linestyles=-,--,-.,:,solid,dashed,dotted,solid;linewidths=2,2,2,2,2,2,2,2"/>
 
-		<fig style="style=bmh;linewidths=1,1,1,1,1,1,1;" name="Link_5" caption=" " x_axis="round" y_axis_scale="1e-9" y_axis_title="Total Recevied Data (GB)" y_axis="ServerDataRecvBytes" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_20,FedALA_0_1_30,FedALA_0_1_40,FedALA_0_1_50,FedALA_0_1_60,FedALA_0_1_70,FedALA_0_1_80,FedALA_0_1_90,FedALA_0_1_100"  />
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_4_TPR_10P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_1" y_axis_title="TPR@FPR10%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_20,FedALA_0_1_30,FedALA_0_1_40,FedALA_0_1_50,FedALA_0_1_60,FedALA_0_1_70,FedALA_0_1_80,FedALA_0_1_90,FedALA_0_1_100" />
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_5_TPR_1P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_01" y_axis_title="TPR@FPR1%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_20,FedALA_0_1_30,FedALA_0_1_40,FedALA_0_1_50,FedALA_0_1_60,FedALA_0_1_70,FedALA_0_1_80,FedALA_0_1_90,FedALA_0_1_100" />
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_5_TPR_0_1P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_001" y_axis_title="TPR@FPR0.1%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_20,FedALA_0_1_30,FedALA_0_1_40,FedALA_0_1_50,FedALA_0_1_60,FedALA_0_1_70,FedALA_0_1_80,FedALA_0_1_90,FedALA_0_1_100" />
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_5_AUC" caption=" " x_axis="round" y_axis="MIA_AUC" y_axis_title="AUC" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_20,FedALA_0_1_30,FedALA_0_1_40,FedALA_0_1_50,FedALA_0_1_60,FedALA_0_1_70,FedALA_0_1_80,FedALA_0_1_90,FedALA_0_1_100" />
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="Accuracy_5" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_20,FedALA_0_1_30,FedALA_0_1_40,FedALA_0_1_50,FedALA_0_1_60,FedALA_0_1_70,FedALA_0_1_80,FedALA_0_1_90,FedALA_0_1_100" />
+	<!-- MIA TPR @ 1% FPR -->
+	<fig name="MIA_TPR_1" 
+	     caption="TPR at 1\% FPR under varying $\alpha$." 
+	     x_axis="round" 
+	     y_axis="MIA_TPRS_0_01" 
+	     y_axis_title="TPR@FPR1\%" 
+	     x_axis_title="\# Rounds" 
+	     methods="Baseline,FedALA_0_3_0,FedALA_0_3_1,FedALA_0_3_4,FedALA_0_3_8,FedALA_0_3_10,FedALA_0_3_50,FedALA_0_3_100" 
+	     labels="Baseline,$\alpha=0$,$\alpha=1$,$\alpha=4$,$\alpha=8$,$\alpha=10$,$\alpha=50$,$\alpha=100$" 
+	     style="style=classic;colors=black,blue,red,green,purple,brown,orange,gray;linestyles=-,--,-.,:,solid,dashed,dotted,solid;linewidths=2,2,2,2,2,2,2,2"/>
+
+	<!-- MIA TPR @ 0.1% FPR -->
+	<fig name="MIA_TPR_0_1" 
+	     caption="TPR at 0.1\% FPR illustrating privacy risk across rounds." 
+	     x_axis="round" 
+	     y_axis="MIA_TPRS_0_001" 
+	     y_axis_title="TPR@FPR0.1\%" 
+	     x_axis_title="\# Rounds" 
+	     methods="Baseline,FedALA_0_3_0,FedALA_0_3_1,FedALA_0_3_4,FedALA_0_3_8,FedALA_0_3_10,FedALA_0_3_50,FedALA_0_3_100" 
+	     labels="Baseline,$\alpha=0$,$\alpha=1$,$\alpha=4$,$\alpha=8$,$\alpha=10$,$\alpha=50$,$\alpha=100$" 
+	     style="style=classic;colors=black,blue,red,green,purple,brown,orange,gray;linestyles=-,--,-.,:,solid,dashed,dotted,solid;linewidths=2,2,2,2,2,2,2,2"/>
+
+	<!-- MIA AUC -->
+	<fig name="MIA_AUC" 
+	     caption="Area Under the Curve (AUC) for MIA metrics during training." 
+	     x_axis="round" 
+	     y_axis="MIA_AUC" 
+	     y_axis_title="AUC" 
+	     x_axis_title="\# Rounds" 
+	     methods="Baseline,FedALA_0_3_0,FedALA_0_3_1,FedALA_0_3_4,FedALA_0_3_8,FedALA_0_3_10,FedALA_0_3_50,FedALA_0_3_100" 
+	     labels="Baseline,$\alpha=0$,$\alpha=1$,$\alpha=4$,$\alpha=8$,$\alpha=10$,$\alpha=50$,$\alpha=100$" 
+	     style="style=classic;colors=black,blue,red,green,purple,brown,orange,gray;linestyles=-,--,-.,:,solid,dashed,dotted,solid;linewidths=2,2,2,2,2,2,2,2"/>
+
+	<!-- Accuracy -->
+	<fig name="Model_Accuracy" 
+	     caption="Model accuracy over communication rounds under varying $\alpha$." 
+	     x_axis="round" 
+	     y_axis="EvaluationAccuracy" 
+	     y_axis_title="Accuracy" 
+	     x_axis_title="\# Rounds" 
+	     methods="Baseline,FedALA_0_3_0,FedALA_0_3_1,FedALA_0_3_4,FedALA_0_3_8,FedALA_0_3_10,FedALA_0_3_50,FedALA_0_3_100" 
+	     labels="Baseline,$\alpha=0$,$\alpha=1$,$\alpha=4$,$\alpha=8$,$\alpha=10$,$\alpha=50$,$\alpha=100$" 
+	     style="style=classic;colors=black,blue,red,green,purple,brown,orange,gray;linestyles=-,--,-.,:,solid,dashed,dotted,solid;linewidths=2,2,2,2,2,2,2,2"/>
+
+</report>
 
 
-		<fig style="style=bmh;linewidths=1,1,1,1,1,1,1;" name="Link_4" caption=" " x_axis="round" y_axis_scale="1e-9" y_axis_title="Total Recevied Data (GB)" y_axis="ServerDataRecvBytes" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_50,FedALA_0_1_100" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000" />
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_4_TPR_10P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_1" y_axis_title="TPR@FPR10%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_50,FedALA_0_1_100" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_4_TPR_1P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_01" y_axis_title="TPR@FPR1%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_50,FedALA_0_1_100" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_4_TPR_0_1P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_001" y_axis_title="TPR@FPR0.1%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_50,FedALA_0_1_100" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_4_AUC" caption=" " x_axis="round" y_axis="MIA_AUC" y_axis_title="AUC" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_50,FedALA_0_1_100" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="Accuracy_4" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_1,FedALA_0_1_10,FedALA_0_1_50,FedALA_0_1_100" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000"/>
-
-
-
-		<fig style="style=bmh;linewidths=1,1,1,1,1,1,1;" name="Link_3" caption=" " x_axis="round" y_axis_scale="1e-9" y_axis_title="Total Recevied Data (GB)" y_axis="ServerDataRecvBytes" x_axis_title="# Rounds" methods="Baseline,FedALA_0_5_1,FedALA_0_5_10,FedALA_0_5_50,FedALA_0_5_100,FedALA_0_5_1000" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000" />
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_3_TPR_10P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_1" y_axis_title="TPR@FPR10%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_5_1,FedALA_0_5_10,FedALA_0_5_50,FedALA_0_5_100,FedALA_0_5_1000" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_3_TPR_1P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_01" y_axis_title="TPR@FPR1%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_5_1,FedALA_0_5_10,FedALA_0_5_50,FedALA_0_5_100,FedALA_0_5_1000" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_3_TPR_0_1P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_001" y_axis_title="TPR@FPR0.1%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_5_1,FedALA_0_5_10,FedALA_0_5_50,FedALA_0_5_100,FedALA_0_5_1000" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_3_AUC" caption=" " x_axis="round" y_axis="MIA_AUC" y_axis_title="AUC" x_axis_title="# Rounds" methods="Baseline,FedALA_0_5_1,FedALA_0_5_10,FedALA_0_5_50,FedALA_0_5_100,FedALA_0_5_1000" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="Accuracy_3" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="Baseline,FedALA_0_5_1,FedALA_0_5_10,FedALA_0_5_50,FedALA_0_5_100,FedALA_0_5_1000" labels="Baseline,Alpha = 1,Alpha = 10,Alpha = 50,Alpha = 100,Alpha = 1000"/>
-
-
-
-
-		<fig style="style=bmh;linewidths=1,1,1,1,1,1,1;" name="Link_1" caption=" " x_axis="round" y_axis_scale="1e-9" y_axis_title="Total Recevied Data (GB)" y_axis="ServerDataRecvBytes" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_10,FedALA_0_3_10,FedALA_0_5_10,FedALA_0_7_10" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%" />
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_1_TPR_10P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_1" y_axis_title="TPR@FPR10%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_10,FedALA_0_3_10,FedALA_0_5_10,FedALA_0_7_10" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_1_TPR_1P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_01" y_axis_title="TPR@FPR1%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_10,FedALA_0_3_10,FedALA_0_5_10,FedALA_0_7_10" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_1_TPR_0_1P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_001" y_axis_title="TPR@FPR0.1%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_10,FedALA_0_3_10,FedALA_0_5_10,FedALA_0_7_10" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_1_AUC" caption=" " x_axis="round" y_axis="MIA_AUC" y_axis_title="AUC" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_10,FedALA_0_3_10,FedALA_0_5_10,FedALA_0_7_10" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="Accuracy_1" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_10,FedALA_0_3_10,FedALA_0_5_10,FedALA_0_7_10" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%"/>
-
-		<fig style="style=bmh;linewidths=1,1,1,1,1,1,1;" name="Link_2" caption=" " x_axis="round" y_axis_scale="1e-9" y_axis_title="Total Recevied Data (GB)" y_axis="ServerDataRecvBytes" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_100,FedALA_0_3_100,FedALA_0_5_100,FedALA_0_7_100" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%" />
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_2_TPR_10P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_1" y_axis_title="TPR@FPR10%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_100,FedALA_0_3_100,FedALA_0_5_100,FedALA_0_7_100" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_2_TPR_1P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_01" y_axis_title="TPR@FPR1%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_100,FedALA_0_3_100,FedALA_0_5_100,FedALA_0_7_100" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_2_TPR_0_1P" caption=" " x_axis="round" y_axis="MIA_TPRS_0_001" y_axis_title="TPR@FPR0.1%" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_100,FedALA_0_3_100,FedALA_0_5_100,FedALA_0_7_100" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="MIA_2_AUC" caption=" " x_axis="round" y_axis="MIA_AUC" y_axis_title="AUC" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_100,FedALA_0_3_100,FedALA_0_5_100,FedALA_0_7_100" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--;linewidths=1,1,1,1,1,1;" name="Accuracy_2" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="Baseline,FedALA_0_1_100,FedALA_0_3_100,FedALA_0_5_100,FedALA_0_7_100" labels="Baseline,$\tau$ = 10%,$\tau$ = 30%,$\tau$ = 50%,$\tau$ = 70%"/>
-
-
-	</report>
 </fedwork_cfg>
