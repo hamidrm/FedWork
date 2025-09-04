@@ -7,14 +7,41 @@ import torch.nn as nn
 from utils.logger import *
 from utils.profiler import *
 from utils.common import Common
-from utils.quantization import UniformQuantizer
+from utils.quantization import RandomizedQuantizer
 from utils.security.DataManipulation import MixUpDefense
 from utils.security.MIAPartial import *
 from utils.security.FedALA import *
 from utils.security.GradientSparsifier import *
-
+from dataset.dataset import _make_eval_train_dataset_from_base
 from torch.utils.data import ConcatDataset, DataLoader, Subset, RandomSampler, BatchSampler, SequentialSampler
 import math
+import os, pickle, torch
+from torch.utils.data import DataLoader, Subset, ConcatDataset, SequentialSampler, BatchSampler
+from torchvision import datasets, transforms
+from torch.utils.data import Subset as TorchSubset
+from torch.utils.data import TensorDataset
+
+def _empty_like_subset(subset):
+    x_shape = subset[0][0].shape if len(subset) else (1,1,1)
+    return torch.utils.data.TensorDataset(torch.empty(0, *x_shape), torch.empty(0, dtype=torch.long))
+
+def _infer_base_dataset(dl):
+    """Unwrap DataLoader.dataset -> (Subset ->) base torchvision/MedMNIST dataset."""
+    ds = dl.dataset
+    # unwrap nested Subset(...) -> dataset
+    while isinstance(ds, TorchSubset):
+        base_indices = ds.indices  # we keep these elsewhere
+        ds = ds.dataset
+    return ds
+
+def _indices_from_loader(dl):
+    """Extract Subset.indices from a client training loader."""
+    ds = dl.dataset
+    while isinstance(ds, TorchSubset):
+        idxs = ds.indices
+        inner = ds.dataset
+        ds = inner
+    return idxs
 
 class FedALA(FederatedLearningClass):
 
@@ -34,38 +61,57 @@ class FedALA(FederatedLearningClass):
         self.fla = FedALADefense(self.lcr, self.alpha, self.ldp_noise_std)
         self.mixup = MixUpDefense(self.mixup_alpha)
         self.gradient_sparsifier = GradientSparsifier(self.gradient_sparsifier_ratio) if self.gradient_sparsifier_ratio != 1.0 else None
-        self.quantization = UniformQuantizer(self.q_levels) if self.q_levels != 0 else None
+        self.quantization = RandomizedQuantizer(self.q_levels) if self.q_levels != 0 else None
 
-
-        seed = 42
-        random.seed(seed)                        # Python random
-        np.random.seed(seed)                     # NumPy
-        torch.manual_seed(seed)                  # PyTorch CPU
-        torch.cuda.manual_seed(seed)             # PyTorch GPU
-        torch.cuda.manual_seed_all(seed)         # All GPUs (if using multi-GPU)
-        
-        torch.backends.cudnn.deterministic = True   # Deterministic operations
-        torch.backends.cudnn.benchmark = False      # Disable optimization for reproducibility
     
-    def get_data_loaders(self):
-        dir_path = self.fl_context["dataset_path"]
+    def get_data_loaders(self, batch_size: int = 10):
 
-        file_path_train      = os.path.join(dir_path, f"dataset_node_0.ds") #Dataset of Client 0 , as the target's dataset
-        file_path_validation = os.path.join(dir_path, f"dataset_node_1.ds") #Dataset of Client 1 , as the validation's dataset
-        #TODO - MIX all non-targets' dataset to make a mixed dataset for validation's dataset
-        with open(file_path_train,      'rb') as f:
-            dataset_loader_train      = pickle.loads(f.read())
+        train_loader_list = self.fl_context.get("dataset_train_list")
+        if not train_loader_list or len(train_loader_list) == 0:
+            raise RuntimeError("Call create_datasets() first: self.fl_context['dataset_train_list'] is empty.")
 
-        with open(file_path_validation, 'rb') as f:
-            dataset_loader_validation = pickle.loads(f.read())
+        # 1) Recreate an eval (non-random) training dataset matching the base type
+        base_ds = _infer_base_dataset(train_loader_list[0])
+        eval_train_ds = _make_eval_train_dataset_from_base(base_ds)   # your helper from earlier
 
-        new_sampler = BatchSampler(SequentialSampler(dataset_loader_train.dataset), batch_size=10, drop_last=False)
-        dataset_loader_train = DataLoader(dataset_loader_train.dataset, batch_sampler=new_sampler)
+        # 2) Indices
+        idxs_target = list(_indices_from_loader(train_loader_list[0]))  # client 0
+        target_len = len(idxs_target)
 
-        new_sampler = BatchSampler(SequentialSampler(dataset_loader_validation.dataset), batch_size=10, drop_last=False)
-        dataset_loader_validation = DataLoader(dataset_loader_validation.dataset, batch_sampler=new_sampler)
+        # Build round-robin pool from all other clients
+        other_lists = [list(_indices_from_loader(dl)) for dl in train_loader_list[1:]]
+        # deterministically interleave
+        mixed = []
+        ptrs = [0] * len(other_lists)
+        while len(mixed) < target_len and len(other_lists) > 0:
+            progressed = False
+            for i in range(len(other_lists)):
+                if ptrs[i] < len(other_lists[i]):
+                    mixed.append(other_lists[i][ptrs[i]])
+                    ptrs[i] += 1
+                    progressed = True
+                    if len(mixed) == target_len:
+                        break
+            if not progressed:
+                # ran out of pool (e.g., only one tiny other client) -> stop
+                break
 
-        return dataset_loader_validation, dataset_loader_train
+        # 3) Build subsets
+        train_subset = Subset(eval_train_ds, idxs_target)
+        val_subset = Subset(eval_train_ds, mixed) if len(mixed) > 0 else _empty_like_subset(train_subset)
+
+        # 4) Deterministic evaluation loaders: sequential sampling, single worker
+        train_loader = DataLoader(
+            train_subset,
+            batch_sampler=BatchSampler(SequentialSampler(train_subset), batch_size=batch_size, drop_last=False),
+            num_workers=0,
+        )
+        val_loader = DataLoader(
+            val_subset,
+            batch_sampler=BatchSampler(SequentialSampler(val_subset), batch_size=batch_size, drop_last=False),
+            num_workers=0,
+        )
+        return val_loader, train_loader
 
 
     def get_name(self):
@@ -103,6 +149,7 @@ class FedALA(FederatedLearningClass):
         
 
         if self.round_num() % 10 == 0:
+            Common.set_seed_over_method(self.fl_context["seed"])
             model_class = self.method_dict["arch"]
             global_model_clone = model_class().to(self.platform)
 
@@ -130,6 +177,7 @@ class FedALA(FederatedLearningClass):
                 profiler.save_variable("MIA_TPRS_0_001", res_total["tprs"]["0.001"], self.round_num() - 1)
                 profiler.save_variable("MIA_TPRS_0_0001", res_total["tprs"]["0.001"], self.round_num() - 1)
                 profiler.save_variable("MIA_AUC", res_total["auc"], self.round_num() - 1)
+            Common.set_seed_over_method(self.fl_context["seed"])
 
 
     def start_training(self):

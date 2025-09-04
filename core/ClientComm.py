@@ -1,3 +1,14 @@
+import os, math, json, hashlib, random, argparse
+os.environ["PYTHONHASHSEED"] = "0"
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # deterministic cuBLAS; set before torch import
+os.environ["OMP_NUM_THREADS"] = "1"; os.environ["MKL_NUM_THREADS"] = "1"
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, Subset
+from torchvision import datasets, transforms
 import socket
 import threading
 import struct
@@ -7,6 +18,23 @@ from utils.common import *
 from utils.logger import *
 from core.network import Network
 
+# ----------------------------- determinism helpers -----------------------------
+
+BASE_SEED = 12345
+
+def seed_everything(seed=BASE_SEED):
+    random.seed(seed); np.random.seed(seed)
+    torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    try:
+        torch.use_deterministic_algorithms(True)
+    except Exception:
+        # Older PyTorch may not have it; that's fine.
+        pass
+    torch.set_num_threads(1)
+    #torch.set_num_interop_threads(1)
+    
 class ClientComm(Network):
     
     def __init__ (self, name, id, host, port, client_evt_fn) -> None:
@@ -57,6 +85,7 @@ class ClientComm(Network):
             rt.join()
             
     def __recv_from_server(self, kill_rcv_th):
+        seed_everything()
         logger.log_debug(f"[{self.name}]: Receiving thread has been started.")
         while not kill_rcv_th.is_set():
 

@@ -1,0 +1,33 @@
+<fedwork_cfg name="fedala_mia_comparison_pathmnist_d100" experiment_mode="true" seed="1234" num_of_nodes="10" net_port="36575" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="50">
+	<dataset type="MedMNIST-PathMNIST">
+		<var name="alpha">100.0</var>
+		<var name="train_batch_size">100</var>
+		<var name="test_batch_size">100</var>
+		<var name="num_workers">0</var>
+		<var name="save_graph">True</var>
+		<var name="enclosed_info">True</var>
+		<var name="dirichlet">True</var>
+	</dataset>
+
+	<localclients learning_rate="0.01" optimizer="SGD" platform="cuda:0">10</localclients>
+	<method name="FedALA_0_2_10_Q" type="FedALA" platform="cuda:0">
+		<arch type="MobileNetV2">
+			<var name="WidthMult">1.0</var>
+		</arch>
+		<var name="epochs_num">1</var>
+		<var name="args">lcr=0.8,alpha=10,randomized_quantization_levels=256</var>
+	</method>
+	<method name="FedALA_0_3_10_Q" type="FedALA" platform="cuda:0">
+		<arch type="MobileNetV2">
+			<var name="WidthMult">1.0</var>
+		</arch>
+		<var name="epochs_num">1</var>
+		<var name="args">lcr=0.2,alpha=10,randomized_quantization_levels=256</var>
+	</method>
+	<report save_log="True" log_over_net="192.168.0.157,23456">
+		<fig name="Accuracy_D100_0" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedALA_0_2_10_Q,FedALA_0_3_10_Q" labels="FedALAQ1,FedALAQ2"  x_axis_range="0,10"/>
+		<fig name="MIA_TPR_D100_0_1" caption=" " x_axis="round" y_axis="MIA_TPRS_0_01" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedALA_0_2_10_Q,FedALA_0_3_10_Q" labels="FedALAQ,FedALAQ2"  x_axis_range="0,10"/>
+		<fig name="Link_D100_0" caption=" " x_axis="round" y_axis="ServerTotalRecvBytes" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedALA_0_2_10_Q,FedALA_0_3_10_Q" labels="FedALAQ,FedALAQ2"  x_axis_range="0,10"/>
+		
+	</report>
+</fedwork_cfg>

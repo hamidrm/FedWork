@@ -2,13 +2,17 @@ import numpy as np
 import torch
 from utils.logger import *
 import torch.nn.functional as F
+from utils.common import Common
 
 class MixUpDefense:
-    def __init__(self, alpha) -> None:
+    def __init__(self, alpha, seed = None) -> None:
         self.alpha = alpha
         self.mixup_ratio = 0
-
+        self.seed = seed
+        
     def get_data(self, inputs, targets):
+        if self.seed is not None:
+            Common.set_seed_over_method(self.seed)
         if self.alpha > 0:
             self.mixup_ratio = np.random.beta(self.alpha, self.alpha)
         else:
@@ -18,7 +22,8 @@ class MixUpDefense:
         shuffled_indices = torch.randperm(batch_size)
 
         mixed_inputs = self.mixup_ratio * inputs + (1 - self.mixup_ratio) * inputs[shuffled_indices, :]
-
+        if self.seed is not None:
+            Common.set_seed_over_method(self.seed)
         return mixed_inputs, targets, targets[shuffled_indices], self.mixup_ratio
 
     def criterion(self, criterion_fn, pred, y_actual, y_mixed):

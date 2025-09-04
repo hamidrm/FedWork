@@ -1,3 +1,7 @@
+import os, math, json, hashlib, random, argparse
+os.environ["PYTHONHASHSEED"] = "0"
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # deterministic cuBLAS; set before torch import
+os.environ["OMP_NUM_THREADS"] = "1"; os.environ["MKL_NUM_THREADS"] = "1"
 
 import pickle
 import socket
@@ -8,8 +12,23 @@ import struct
 from utils.logger import *
 import copy
 from core.network import Network
+import numpy as np
 
+BASE_SEED = 12345
 
+def seed_everything(seed=BASE_SEED):
+    random.seed(seed); np.random.seed(seed)
+    torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    try:
+        torch.use_deterministic_algorithms(True)
+    except Exception:
+        # Older PyTorch may not have it; that's fine.
+        pass
+    torch.set_num_threads(1)
+    #torch.set_num_interop_threads(1)
+    
 class ServerComm(Network):
 
     def __init__(self, host, port, server_evt_fn):
@@ -58,6 +77,7 @@ class ServerComm(Network):
         
 
     def __server_thread(self):
+        seed_everything()
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((self.host, self.port))
@@ -114,7 +134,7 @@ class ServerComm(Network):
             connection.close()
 
     def __client_receiver(self):
-        
+        seed_everything()
         while not self.evt_receiver_status.is_set():
             packet_type, packet_param1, _, _, data, rcv_id = self.receive_data()
             if rcv_id is None:

@@ -13,6 +13,138 @@ import utils.consts as consts
 from collections import Counter
 import numpy as np
 
+# Add to dataloader.py
+import torch
+from torch.utils.data import DataLoader, Subset
+from torchvision import datasets, transforms
+
+def _make_eval_transforms_and_datasets(ds_type: str):
+    """
+    Recreate train/test datasets with the SAME (non-random) transforms
+    used in create_datasets(). No random crops/flips here so results are stable.
+    """
+    if ds_type == "MNIST":
+        tf_train = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+        tf_test  = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+        train_dataset = datasets.MNIST(root='./dataset/data', train=True,  transform=tf_train, download=True)
+        test_dataset  = datasets.MNIST(root='./dataset/data', train=False, transform=tf_test)
+    elif ds_type == "CIFAR10":
+        stats = ((0.49139968, 0.48215841, 0.44653091),
+                 (0.24703223, 0.24348513, 0.26158784))
+        tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize(*stats)])
+        train_dataset = datasets.CIFAR10(root='./dataset/data', train=True,  transform=tf, download=True)
+        test_dataset  = datasets.CIFAR10(root='./dataset/data', train=False, transform=tf)
+    elif ds_type == "CIFAR100":
+        stats = ((0.5070751592371323, 0.48654887331495095, 0.4409178433670343),
+                 (0.2673342858792401, 0.2564384629170883, 0.27615047132568404))
+        tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize(*stats)])
+        train_dataset = datasets.CIFAR100(root='./dataset/data', train=True,  transform=tf, download=True)
+        test_dataset  = datasets.CIFAR100(root='./dataset/data', train=False, transform=tf)
+    elif ("-" in ds_type) and ds_type.split("-")[0].lower() == "medmnist":
+        from dataset import MedMNIST
+        tf = transforms.Compose([transforms.ToTensor()])
+        train_dataset = MedMNIST.MedMNIST(dataset_name=ds_type.split("-")[1],
+                                          root='./dataset/data', train=True,  transform=tf, download=True)
+        test_dataset  = MedMNIST.MedMNIST(dataset_name=ds_type.split("-")[1],
+                                          root='./dataset/data', train=False, transform=tf)
+    elif ds_type == "FashionMNIST":
+        tf_train = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+        tf_test  = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+        train_dataset = datasets.FashionMNIST(root='./dataset/data', train=True,  transform=tf_train, download=True)
+        test_dataset  = datasets.FashionMNIST(root='./dataset/data', train=False, transform=tf_test)
+    else:
+        raise ValueError(f"Dataset '{ds_type}' not recognized.")
+    return train_dataset, test_dataset
+
+def _infer_ds_type_from_base(base_ds):
+    if isinstance(base_ds, datasets.CIFAR10):   return "CIFAR10"
+    if isinstance(base_ds, datasets.CIFAR100):  return "CIFAR100"
+    if isinstance(base_ds, datasets.MNIST):     return "MNIST"
+    if isinstance(base_ds, datasets.FashionMNIST): return "FashionMNIST"
+    # MedMNIST wrapper
+    try:
+        from dataset import dataset
+        if isinstance(base_ds, dataset.MedMNIST.MedMNIST):
+            return f"medmnist-{base_ds.flag}"  # e.g., "medmnist-PathMNIST"
+    except Exception:
+        raise ValueError(f"Unsupported base dataset type: {type(base_ds)}")
+
+def _make_eval_train_dataset_from_base(base_ds):
+    ds_type = _infer_ds_type_from_base(base_ds)
+    eval_train_ds, _ = _make_eval_transforms_and_datasets(ds_type)
+    return eval_train_ds
+
+def _cpu_dl_generator(seed: int) -> torch.Generator:
+    """DataLoader must use a CPU generator (PyTorch requirement)."""
+    g = torch.Generator(device="cpu")
+    g.manual_seed(seed)
+    return g
+
+def build_loaders_from_partitions(partitions, ds_type: str,
+                                  train_batch_size: int,
+                                  test_batch_size: int,
+                                  base_seed: int = 0):
+    """
+    Rebuilds client train loaders and the test loader from cached `partitions`
+    (list of index lists). This mirrors the behavior of `create_datasets`,
+    but avoids pickling DataLoader/Generator objects.
+    """
+    # Recreate base datasets with deterministic transforms
+    train_dataset, test_dataset = _make_eval_transforms_and_datasets(ds_type)
+
+    # One deterministic DataLoader per client (shuffle=True, generator=CPU)
+    train_loaders = []
+    for cid, idxs in enumerate(partitions):
+        subset = Subset(train_dataset, idxs)
+        g = _cpu_dl_generator(base_seed + 1000 + cid)
+        loader = DataLoader(
+            subset,
+            batch_size=train_batch_size,
+            shuffle=True,
+            num_workers=0,                 # keep 0 for strict reproducibility
+            worker_init_fn=worker_init_fn, # already defined above in your file
+            generator=g,                   # CPU generator only
+            persistent_workers=False
+        )
+        train_loaders.append(loader)
+
+    # Test loader (shuffle=False) — no generator needed
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=test_batch_size,
+        shuffle=False,
+        num_workers=0,
+        worker_init_fn=worker_init_fn,
+        persistent_workers=False
+    )
+
+    return train_loaders, test_loader
+
+
+def worker_init_fn(worker_id):
+    s = 0 + 10_000 + worker_id
+    random.seed(s)
+    np.random.seed(s)
+    torch.manual_seed(s)
+
+def make_generator(seed: int) -> torch.Generator:
+    g = torch.Generator("cpu")
+    g.manual_seed(seed)
+    return g
+
+def build_client_loader(train_dataset, indices, batch_size, base_seed, client_id):
+    subset = Subset(train_dataset, indices)
+    g = make_generator(base_seed + 1000 + client_id)  # per-client generator
+    return DataLoader(
+        subset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        worker_init_fn=worker_init_fn,
+        generator=g,
+        persistent_workers=False,
+    )
+    
 def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_iid_level_alpha=0.1, train_batch_size=64, test_batch_size=64, use_dirichlet=False, num_workers=8, save_graph=True, add_info_to_figure=False, path=None):
     logger.log_info(f'Dirichlet: {use_dirichlet}, Heterogeneous: {heterogeneous}, Non-i.i.d Level: {non_iid_level_alpha}, Train Batch Size: {train_batch_size}, Test Batch Size: {test_batch_size}')
     classes = []
@@ -31,8 +163,6 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
     elif ds_type == "CIFAR10":
         stats = (0.49139968, 0.48215841, 0.44653091), (0.24703223, 0.24348513, 0.26158784)
         transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(*stats)
         ])
@@ -46,8 +176,6 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
     elif ds_type == "CIFAR100":
         stats = (0.5070751592371323, 0.48654887331495095, 0.4409178433670343), (0.2673342858792401, 0.2564384629170883, 0.27615047132568404)
         transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(*stats)
         ])
@@ -104,7 +232,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         remainder = train_total_dataset_size % train_ds_num
         for i in range(remainder):
             split_indices[i].append(all_indices[train_ds_num * train_groups_eq_size + i])
-
+        partitions = split_indices
         for subset_indices in split_indices:
             subset = Subset(train_dataset, subset_indices)
             loader = DataLoader(subset, batch_size=test_batch_size, shuffle=True,  num_workers=num_workers)
@@ -147,9 +275,10 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
                     offset += size
                     subset_indices_lists[client_id].extend(assigned_indices)
             train_datasets = []
+            partitions = subset_indices_lists
             for client_id in range(train_ds_num):
 
-                random.shuffle(subset_indices_lists[client_id])
+                #random.shuffle(subset_indices_lists[client_id])
 
                 # Create a Subset and then a DataLoader
                 dataset_client = Subset(train_dataset, subset_indices_lists[client_id])
@@ -252,4 +381,4 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         full_path = os.path.join(dir_path, f"dataset_distribution_{time_str}_sbp.pdf")
         plt.savefig(full_path, format="pdf", bbox_inches="tight")
 
-    return train_datasets, test_dataset_loader
+    return train_datasets, test_dataset_loader, partitions

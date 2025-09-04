@@ -1,24 +1,33 @@
+import os, math, json, hashlib, random, argparse
+os.environ["PYTHONHASHSEED"] = "0"
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"  # deterministic cuBLAS; set before torch import
+os.environ["OMP_NUM_THREADS"] = "1"; 
+os.environ["MKL_NUM_THREADS"] = "1"
+
 import pickle
 import sys
 import xml.etree.ElementTree as ET
 from core.Client import Client
+from core.ClientExp import ClientExp
 from arch.arch import ActivationFunction, BaseArch, FWArch
 from utils.common import IpAddr
 import utils.consts as const
 import utils.logger as util
 from utils.profiler import *
+from utils.common import *
 import os
 import xmltodict
 import torch.nn as nn
+import numpy as np
 import dataset.dataset as DS
 from core.Server import *
 import torch.optim as optim
 from utils.plotter import Plotter
 from methods.FedALA import FedALA
-
+    
 class fedwork:
     def __init__(self):
-        self.local_clients = []
+        self.local_clients = {}
         self.plotter = Plotter()
         self.fl_context = {}
         logger().set_log_type(logger_log_type.logger_type_debug.value |
@@ -47,63 +56,53 @@ class fedwork:
             return def_val
 
     def create_datasets(self, dataset_cfg, num_of_nodes, output_dir = const.OUTPUT_DIR):
-
+        random.seed(42); np.random.seed(42); torch.manual_seed(42)
         dir_path = os.path.join(output_dir, "dataset")
-
         self.fl_context["dataset_path"] = dir_path
-        if os.path.exists(dir_path):
-            dataset_train_list = []
-            file_counter = 0
-            while True:
-                file_path = os.path.join(dir_path, f"dataset_node_{file_counter}.ds")
-                file_counter += 1
-                if os.path.exists(file_path):
-                    with open(file_path, 'rb') as f:
-                        dataset_train_list.append(pickle.loads(f.read()))
-                else:
-                    file_path = os.path.join(dir_path, f"dataset_test.ds")
-                    
-                    if not os.path.exists(file_path):
-                        break
-                    with open(file_path, 'rb') as f:
-                        data = f.read()
-                        dataset_test = pickle.loads(data)
-                        
-                    self.fl_context["dataset_train_list"] = dataset_train_list
-                    self.fl_context["dataset_train_test"] = dataset_test
-                    return dataset_train_list, dataset_test
 
+        # 1) read config vars first
         vars = dataset_cfg["var"]
-        heterogeneous = self.get_var(vars, "heterogeneous", bool, False)
-        non_iid_level = self.get_var(vars, "non_iid_level", float, 0.5)
-        non_iid_alpha = self.get_var(vars, "alpha", float, sys.float_info.min)
-        train_batch_size = self.get_var(vars, "train_batch_size", int, 128)
+        heterogeneous   = self.get_var(vars, "heterogeneous", bool, False)
+        non_iid_level   = self.get_var(vars, "non_iid_level", float, 0.5)
+        non_iid_alpha   = self.get_var(vars, "alpha", float, sys.float_info.min)
+        train_batch_size= self.get_var(vars, "train_batch_size", int, 128)
         test_batch_size = self.get_var(vars, "test_batch_size", int, 128)
-        num_workers = self.get_var(vars, "num_workers", int, 1)
-        save_graph = self.get_var(vars, "save_graph", bool, True)
-        enclose_info = self.get_var(vars, "enclosed_info", bool, False)
-        use_dirichlet = self.get_var(vars, "dirichlet", bool, False)
-
+        save_graph      = self.get_var(vars, "save_graph", bool, True)
+        enclose_info    = self.get_var(vars, "enclosed_info", bool, False)
+        use_dirichlet   = self.get_var(vars, "dirichlet", bool, False)
         if non_iid_alpha != sys.float_info.min:
             non_iid_level = non_iid_alpha
-        dataset_train_list, dataset_test = DS.create_datasets(num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level, train_batch_size, test_batch_size, use_dirichlet, num_workers, save_graph, enclose_info, dir_path)
 
+        # 2) try to load cached partitions
+        partitions = []
+        i = 0
+        while True:
+            fpath = os.path.join(dir_path, f"dataset_node_{i}.ds")
+            if not os.path.exists(fpath): break
+            with open(fpath, 'rb') as f:
+                partitions.append(pickle.load(f))
+            i += 1
 
-        if not os.path.exists(dir_path):
-            os.mkdir(dir_path)
-        file_counter = 0
-        for dataset in dataset_train_list:
-            data = pickle.dumps(dataset)
-            file_path = os.path.join(dir_path, f"dataset_node_{file_counter}.ds")
-            file_counter += 1
-            with open(file_path, 'wb') as f:
-                f.write(data)
-        
-        file_path = os.path.join(dir_path, f"dataset_test.ds")
-        data = pickle.dumps(dataset_test)
-        with open(file_path, 'wb') as f:
-            f.write(data)
-            
+        if partitions:
+            dataset_train_list, dataset_test = DS.build_loaders_from_partitions(
+                partitions, dataset_cfg["@type"], train_batch_size, test_batch_size, base_seed=0
+            )
+            self.fl_context["dataset_train_list"] = dataset_train_list
+            self.fl_context["dataset_train_test"] = dataset_test
+            return dataset_train_list, dataset_test
+
+        # 3) build fresh, save partitions
+        dataset_train_list, dataset_test, partitions = DS.create_datasets(
+            num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level,
+            train_batch_size, test_batch_size, use_dirichlet, 0, save_graph, enclose_info, dir_path
+        )
+        os.makedirs(dir_path, exist_ok=True)
+        for i, idxs in enumerate(partitions):
+            with open(os.path.join(dir_path, f"dataset_node_{i}.ds"), 'wb') as f:
+                pickle.dump(idxs, f)
+        with open(os.path.join(dir_path, "dataset_meta.pkl"), "wb") as f:
+            pickle.dump({"type": dataset_cfg["@type"]}, f)
+
         self.fl_context["dataset_train_list"] = dataset_train_list
         self.fl_context["dataset_train_test"] = dataset_test
         return dataset_train_list, dataset_test
@@ -156,7 +155,7 @@ class fedwork:
         
 
         #TODO-make it configurable through xml config
-        torch.manual_seed(0)
+        
 
         if not os.path.exists(const.OUTPUT_DIR):
             os.mkdir(const.OUTPUT_DIR)
@@ -167,7 +166,12 @@ class fedwork:
             util.logger.log_error("Invalid config file! Tag 'fedwork' tag is not found.")
             return
         
-
+        attr_seed = "@seed_mode"
+        attr_seed_def = 42
+        seed_value = fedwork_cfg[attr_seed] if attr_seed in fedwork_cfg.keys() else attr_seed_def
+        self.fl_context["seed"] = seed_value
+        Common.set_seed_over_everything(seed_value)
+        
         self.fl_context["config_xml_fedwork"] = fedwork_cfg
         cfg_name = fedwork_cfg.get("@name")
         if cfg_name is None:
@@ -198,7 +202,11 @@ class fedwork:
         save_log_def = "True"
         save_log = bool(report_cfg[attr_save_log] if attr_save_log in report_cfg.keys() else save_log_def)
 
-
+        attr_exp_mode = "@experiment_mode"
+        attr_exp_mode_def = "false"
+        exp_mode = fedwork_cfg[attr_exp_mode] if attr_exp_mode in fedwork_cfg.keys() else attr_exp_mode_def
+        self.fl_context["experiment_mode"] = exp_mode
+        
         attr_lon = "@log_over_net"
         lon_opt = None
         if attr_lon in report_cfg.keys():
@@ -245,7 +253,7 @@ class fedwork:
             profiler.reset_profiles()
             attr_method_type = "@type"
             attr_method_name = "@name"
-
+            Common.set_seed_over_method(seed_value)
             if not attr_method_type in method.keys():
                 util.logger.log_error(f"Method type is not determined!")
                 continue
@@ -343,8 +351,8 @@ class fedwork:
 
                     if var_name in vars_list:
                         arch.SetParameter(var_name, var_text)
-
-            
+        
+            Common.set_seed_over_method(seed_value)
             msg = arch.Build()
 
             if msg != '':
@@ -359,9 +367,9 @@ class fedwork:
             self.fl_context["methods_list"][method_name]["platform"] = method_platform
 
             # Load the method for Server-side requests
-            method_obj = FedALA(method_name, self.fl_context, method_args)#self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
-            
-            server = Server(IpAddr(net_ip, net_port), method_obj, test_dataset, global_model, loss_func, method_platform)
+            method_obj = self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
+
+            server = Server(IpAddr(net_ip, net_port), method_obj, test_dataset, global_model, loss_func, method_platform, exp_mode)
 
             localclients_tag = "localclients"
             if localclients_tag in fedwork_cfg:
@@ -410,14 +418,26 @@ class fedwork:
                     break
                 
                 if localclients_num != 0:
-                    for client_id in range(localclients_num):
-                        model = arch.CreateModel().to(method_platform)
+                    if exp_mode:
+                        for client_id in range(localclients_num):
+                            model = arch.CreateModel().to(method_platform)
 
-                        # Load the method for Client-side requests
-                        method_obj = FedALA(method_name, self.fl_context, method_args)#self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
+                            # Load the method for Client-side requests
+                            method_obj = FedALA(method_name, self.fl_context, method_args)#self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
+                            
+                            new_client = ClientExp(f"Client{client_id}", client_id, server, TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform)
+                            self.local_clients[f"Client{client_id}"] = new_client
                         
-                        new_client = Client(f"Client{client_id}", client_id, IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform)
-                        self.local_clients.append(new_client)
+                        server.setClientSetExp(self.local_clients)
+                    else:
+                        for client_id in range(localclients_num):
+                            model = arch.CreateModel().to(method_platform)
+
+                            # Load the method for Client-side requests
+                            method_obj = FedALA(method_name, self.fl_context, method_args)#self.load_method(method_class, method_type, (method_name, self.fl_context, method_args))
+                            
+                            new_client = Client(f"Client{client_id}", client_id, IpAddr(net_ip, net_port), TrainingHyperParameters(learning_rate, momentum, weight_decay), train_dataset_list[client_id], model, optimizer, loss_func, method_obj, client_platform)
+                            self.local_clients[f"Client{client_id}"] = new_client
 
             server.start_training()
             server.wait_for_method()
