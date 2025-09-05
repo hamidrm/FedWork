@@ -250,10 +250,10 @@ class fedwork:
         
         self.fl_context["methods_list"] = {}
         for method in methods_cfg:
+            self.local_clients = {}
             profiler.reset_profiles()
             attr_method_type = "@type"
             attr_method_name = "@name"
-            Common.set_seed_over_method(seed_value)
             if not attr_method_type in method.keys():
                 util.logger.log_error(f"Method type is not determined!")
                 continue
@@ -277,7 +277,9 @@ class fedwork:
 
                 continue
 
-
+            Common.set_seed_over_method(seed_value)
+            train_dataset_list, test_dataset = self.create_datasets(dataset_cfg, int(fedwork_cfg["@num_of_nodes"]), output_path)
+            Common.set_seed_over_method(seed_value)
             attr_method_platform = "@platform"
             attr_method_platform_def = "cpu"
             method_platform = method[attr_method_platform] if attr_method_platform in method.keys() else attr_method_platform_def
@@ -352,7 +354,7 @@ class fedwork:
                     if var_name in vars_list:
                         arch.SetParameter(var_name, var_text)
         
-            Common.set_seed_over_method(seed_value)
+            
             msg = arch.Build()
 
             if msg != '':

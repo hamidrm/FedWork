@@ -65,7 +65,7 @@ class FedALA(FederatedLearningClass):
 
     
     def get_data_loaders(self, batch_size: int = 10):
-
+        Common.set_seed_over_method(self.fl_context["seed"])
         train_loader_list = self.fl_context.get("dataset_train_list")
         if not train_loader_list or len(train_loader_list) == 0:
             raise RuntimeError("Call create_datasets() first: self.fl_context['dataset_train_list'] is empty.")
@@ -111,6 +111,7 @@ class FedALA(FederatedLearningClass):
             batch_sampler=BatchSampler(SequentialSampler(val_subset), batch_size=batch_size, drop_last=False),
             num_workers=0,
         )
+        Common.set_seed_over_method(self.fl_context["seed"])
         return val_loader, train_loader
 
 

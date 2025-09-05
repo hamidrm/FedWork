@@ -282,10 +282,15 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
 
                 # Create a Subset and then a DataLoader
                 dataset_client = Subset(train_dataset, subset_indices_lists[client_id])
+                g = _cpu_dl_generator(0 + 1000 + client_id)
                 loader_client = DataLoader(dataset_client,
                                         batch_size=train_batch_size,
                                         shuffle=True,
-                                        num_workers=num_workers)
+                                        num_workers=num_workers,
+                                        worker_init_fn=worker_init_fn, # already defined above in your file
+                                        generator=g,                   # CPU generator only
+                                        persistent_workers=False)
+                
                 train_datasets.append(loader_client)
 
                 assigned_indices = subset_indices_lists[client_id]
