@@ -35,14 +35,19 @@ def _make_eval_transforms_and_datasets(ds_type: str):
         train_dataset = datasets.CIFAR10(root='./dataset/data', train=True,  transform=tf, download=True)
         test_dataset  = datasets.CIFAR10(root='./dataset/data', train=False, transform=tf)
     elif ds_type == "CIFAR100":
-        stats = (0.5070751592371323, 0.48654887331495095, 0.4409178433670343), (0.2673342858792401, 0.2564384629170883, 0.27615047132568404)
+        mean = (0.5071, 0.4865, 0.4409)
+        std  = (0.2673, 0.2564, 0.2761)
+
         transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(*stats)
+            transforms.Normalize(mean, std),
         ])
+
         transform_test = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(*stats)
+            transforms.Normalize(mean, std),
         ])
         train_dataset = datasets.CIFAR100(root='./dataset/data', train=True, transform=transform_train, download=True)
         test_dataset = datasets.CIFAR100(root='./dataset/data', train=False, transform=transform_test, download=True)
@@ -181,14 +186,19 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
         test_dataset  = datasets.CIFAR10(root='./dataset/data', train=False, transform=transform_test)
         dataset_label_list = train_dataset.targets
     elif ds_type == "CIFAR100":
-        stats = (0.5070751592371323, 0.48654887331495095, 0.4409178433670343), (0.2673342858792401, 0.2564384629170883, 0.27615047132568404)
+        mean = (0.5071, 0.4865, 0.4409)
+        std  = (0.2673, 0.2564, 0.2761)
+
         transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(*stats)
+            transforms.Normalize(mean, std),
         ])
+
         transform_test = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(*stats)
+            transforms.Normalize(mean, std),
         ])
         train_dataset = datasets.CIFAR100(root='./dataset/data', train=True, transform=transform_train, download=True)
         test_dataset = datasets.CIFAR100(root='./dataset/data', train=False, transform=transform_test, download=True)
