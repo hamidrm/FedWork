@@ -3,7 +3,117 @@ import numpy as np
 import torch
 
 class Plotter:
+    def _sense_to_sign(self, sense):
+        """'min' -> +1, 'max' -> -1 (so we can turn any objective into 'min')."""
+        s = str(sense).lower()
+        if s.startswith("min"): return 1.0
+        if s.startswith("max"): return -1.0
+        raise ValueError("sense must be 'min' or 'max'")
 
+    def pareto_front_2d_indices(self, x, y, senses=("min", "max"), strict=True):
+        """
+        Return indices of the non-dominated points for two objectives.
+
+        By default: x is minimized, y is maximized (typical 'cost vs quality').
+        Set strict=False to keep ties on the front.
+        """
+        x = np.asarray(x).reshape(-1)
+        y = np.asarray(y).reshape(-1)
+        if x.size != y.size:
+            raise ValueError(f"x and y must have same length, got {x.size} and {y.size}")
+
+        sx = self._sense_to_sign(senses[0])  # +1=min, -1=max
+        sy = self._sense_to_sign(senses[1])
+
+        # Transform so BOTH objectives become "minimize"
+        xt = x * sx
+        yt = y * sy
+
+        # Sort by xt ascending; scan, keeping new best (lowest) yt
+        order = np.argsort(xt, kind="mergesort")
+        y_sorted = yt[order]
+        running_best = np.minimum.accumulate(y_sorted)
+        if strict:
+            keep_sorted = y_sorted < np.r_[np.inf, running_best[:-1]]
+        else:
+            keep_sorted = y_sorted <= np.r_[np.inf, running_best[:-1]]
+        return order[keep_sorted]
+
+    def _to_numpy_1d(self, a):
+        # torch tensor -> numpy
+        if isinstance(a, torch.Tensor):
+            return a.detach().cpu().reshape(-1).numpy()
+        # list/tuple (possibly of tensors) -> numpy
+        if isinstance(a, (list, tuple)):
+            out = []
+            for v in a:
+                if isinstance(v, torch.Tensor):
+                    out.append(v.detach().cpu().item() if v.numel()==1
+                            else v.detach().cpu().numpy().reshape(-1)[0])
+                else:
+                    out.append(float(v))
+            return np.asarray(out, dtype=float).reshape(-1)
+        # everything else -> numpy
+        return np.asarray(a).reshape(-1)
+
+    def plot_tradeoff_2d(self, x, y, label, style_str, style_index, 
+                         senses=("min","max"), show_points=True):
+        """
+        Scatter all points + overlay the Pareto front.
+        senses: ('min'|'max', 'min'|'max') for (x, y).
+        """
+
+        x = self._to_numpy_1d(x)
+        y = self._to_numpy_1d(y)
+
+        min = len(y) if len(x) > len(y) else len(x)
+        
+        x = x[:min]
+        y = y[:min]
+        
+
+        # front
+        idx = self.pareto_front_2d_indices(x, y, senses=senses)
+        xf, yf = x[idx], y[idx]
+
+        # draw the front ordered along x (respecting its sense)
+        sx = self._sense_to_sign(senses[0])
+        order = np.argsort(xf * sx)
+
+        # Extract style parameters safely
+        colors = linestyles = linewidths = markers = fill_colors = None
+        alpha = 0.1  # default alpha
+        
+        if "colors=" in style_str:
+            colors = style_str.split("colors=")[1].split(";")[0].strip().split(",")
+
+        if "alpha=" in style_str:
+            alpha_vals = style_str.split("alpha=")[1].split(";")[0].strip().split(",")
+            if len(alpha_vals) > style_index:
+                alpha = float(alpha_vals[style_index])
+
+        if "linestyles=" in style_str:
+            linestyles = style_str.split("linestyles=")[1].split(";")[0].strip().split(",")
+
+        if "linewidths=" in style_str:
+            linewidths = list(map(float, style_str.split("linewidths=")[1].split(";")[0].strip().split(",")))
+
+        if "markers=" in style_str:
+            markers = style_str.split("markers=")[1].split(";")[0].strip().split(",")
+
+        # Safe extraction with defaults
+        c = colors[style_index] if colors and len(colors) > style_index else 'blue'
+        ls = linestyles[style_index] if linestyles and len(linestyles) > style_index else '-'
+        lw = linewidths[style_index] if linewidths and len(linewidths) > style_index else 2
+        m = markers[style_index] if markers and len(markers) > style_index else None
+
+        # scatter all points (faint)
+        #if show_points:
+        #    plt.scatter(x, y, s=15, color=c, alpha=0.2)
+
+
+        plt.plot(xf[order], yf[order], color=c, linestyle=ls, linewidth=lw, marker=m, label=label)
+    
     def plot_hypervolume2d(self, x, y, label, reference_point, style_str, style_index):
         
 

@@ -13,7 +13,7 @@ from utils.common import Common
 from utils.quantization import RandomizedQuantizer
 from utils.security.DataManipulation import MixUpDefense
 from utils.security.MIAPartial import *
-from utils.security.FedALA import *
+from utils.security.FedALAQ import *
 from utils.security.GradientSparsifier import *
 from torch.utils.data import DataLoader, SequentialSampler, BatchSampler
 

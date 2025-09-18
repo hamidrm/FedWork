@@ -1,0 +1,45 @@
+<fedwork_cfg name="fedalaq_cifar100_resnet18_comm_1_0" experiment_mode="true" seed="42" num_of_nodes="10" net_port="36575" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="500">
+	<dataset type="CIFAR100">
+		<var name="alpha">1.0</var>
+		<var name="train_batch_size">100</var>
+		<var name="test_batch_size">100</var>
+		<var name="num_workers">0</var>
+		<var name="save_graph">True</var>
+		<var name="enclosed_info">True</var>
+		<var name="dirichlet">True</var>
+	</dataset>
+
+	<localclients learning_rate="0.01" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda:0">10</localclients>
+	<method name="FedALAQ_0_3_100" type="FedALAQ" platform="cuda:0">
+		<arch type="ResNet18">
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">lcr=0.3,alpha=100,randomized_quantization_levels=256,fedmia_stride=501</var>
+	</method>
+	<method name="FedAvgQ8" type="FedALAQ" platform="cuda:0">
+		<arch type="ResNet18">
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">lcr=1.0,alpha=0,randomized_quantization_levels=256,fedmia_stride=501</var>
+	</method>
+	<method name="FedAvg" type="FedALAQ" platform="cuda:0">
+		<arch type="ResNet18">
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">lcr=1.0,alpha=0,fedmia_stride=501</var>
+	</method>
+	<method name="FedLP" type="FedLP" platform="cuda:0">
+		<arch type="ResNet18">
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">p=0.2</var>
+	</method>
+	<report save_log="True" log_over_net="192.168.0.157,23456">
+		<fig name="Accuracy_D0_1" caption=" " x_axis="time" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedDrop" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedDrop"  />
+		<fig name="Loss_D0_1" caption=" " x_axis="round" y_axis="EvaluationLoss" y_axis_title="Loss" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedDrop" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedDrop"  />
+		<fig name="Link_D0_1" caption=" " x_axis="round" y_axis="ServerTotalRecvBytes" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedDrop" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedDrop"  />
+		<fig name="Link_D0_1_T" caption=" " x_axis="time" y_axis="ServerTotalRecvBytes" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedDrop" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedDrop"  />
+		<fig:pf style="style=bmh;colors=black,green,blue,red,darkorange,navy,darkcyan,slategray,purple;linestyles=--;linewidths=1,1,1,1,1,1;" name="PF" caption=" " x_axis="ServerTotalRecvBytes" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedDrop"  />
+			
+	</report>
+</fedwork_cfg>

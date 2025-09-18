@@ -35,11 +35,18 @@ def _make_eval_transforms_and_datasets(ds_type: str):
         train_dataset = datasets.CIFAR10(root='./dataset/data', train=True,  transform=tf, download=True)
         test_dataset  = datasets.CIFAR10(root='./dataset/data', train=False, transform=tf)
     elif ds_type == "CIFAR100":
-        stats = ((0.5070751592371323, 0.48654887331495095, 0.4409178433670343),
-                 (0.2673342858792401, 0.2564384629170883, 0.27615047132568404))
-        tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize(*stats)])
-        train_dataset = datasets.CIFAR100(root='./dataset/data', train=True,  transform=tf, download=True)
-        test_dataset  = datasets.CIFAR100(root='./dataset/data', train=False, transform=tf)
+        stats = (0.5070751592371323, 0.48654887331495095, 0.4409178433670343), (0.2673342858792401, 0.2564384629170883, 0.27615047132568404)
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(*stats)
+        ])
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(*stats)
+        ])
+        train_dataset = datasets.CIFAR100(root='./dataset/data', train=True, transform=transform_train, download=True)
+        test_dataset = datasets.CIFAR100(root='./dataset/data', train=False, transform=transform_test, download=True)
+
     elif ("-" in ds_type) and ds_type.split("-")[0].lower() == "medmnist":
         from dataset import MedMNIST
         tf = transforms.Compose([transforms.ToTensor()])
@@ -184,7 +191,7 @@ def create_datasets(train_ds_num=5, ds_type="MNIST", heterogeneous=False, non_ii
             transforms.Normalize(*stats)
         ])
         train_dataset = datasets.CIFAR100(root='./dataset/data', train=True, transform=transform_train, download=True)
-        test_dataset = datasets.CIFAR100(root='./dataset/data', train=False, transform=transform_test)
+        test_dataset = datasets.CIFAR100(root='./dataset/data', train=False, transform=transform_test, download=True)
         dataset_label_list = train_dataset.targets
     elif ds_type == "FashionMNIST":
         transform_train = transforms.Compose([

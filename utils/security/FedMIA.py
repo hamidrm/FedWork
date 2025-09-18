@@ -24,52 +24,80 @@ class MIACommon:
         return filtered_tensor_mean, filtered_tensor_var
 
     @staticmethod
-    def calculate_auc_metrics(val_scores, train_scores):
-        
-        # Labels and scores concatenation
+    def calculate_auc_metrics(val_scores, train_scores, low_fpr_cutoff=0.01):
+        """
+        val_scores: tensor of non-member scores (e.g., -loss on validation)
+        train_scores: tensor of member scores (e.g., -loss on train)
+        """
+        # labels: 0 = non-member (val), 1 = member (train)
         labels = torch.cat([torch.zeros_like(val_scores), torch.ones_like(train_scores)])
         scores = torch.cat([val_scores, train_scores])
 
-        # Compute ROC curve similar to sklearn.metrics.roc_curve
-        scores_np = scores.cpu().numpy()
-        labels_np = labels.cpu().numpy()
-        sorted_indices = np.argsort(-scores_np)  # Descending sort
-        sorted_labels = labels_np[sorted_indices]
+        # to numpy
+        y = labels.detach().cpu().numpy().astype(np.int32)
+        s = scores.detach().cpu().numpy().astype(np.float64)
 
-        tps = np.cumsum(sorted_labels)  # True Positives
-        fps = np.cumsum(1 - sorted_labels)  # False Positives
+        # Sort by score desc; stable so ties keep order (ok for ROC)
+        order = np.argsort(-s, kind="mergesort")
+        y_sorted = y[order]
+        s_sorted = s[order]
 
-        # Calculate FPR and TPR
-        tpr = tps / tps[-1]
-        fpr = fps / fps[-1]
+        # Cum sums give ROC steps at each distinct threshold
+        tps = np.cumsum(y_sorted)                 # positives predicted positive
+        fps = np.cumsum(1 - y_sorted)             # negatives predicted positive
+        P = tps[-1] if tps.size else 0            # total positives
+        N = fps[-1] if fps.size else 0            # total negatives
 
-        # Calculate 10AUC using trapezoidal rule
+        if P == 0 or N == 0:
+            # Degenerate case: cannot build ROC
+            return {"auc": float("nan"), "log_auc": float("nan"),
+                    "tprs": {k: float("nan") for k in ["0.1","0.02","0.01","0.001","0.0001"]},
+                    "pauc_<=1%": float("nan")}
+
+        # Collapse ties (distinct thresholds) to get proper ROC
+        # Indices where score changes
+        score_changes = np.r_[True, s_sorted[1:] != s_sorted[:-1]]
+        tps_u = tps[score_changes]
+        fps_u = fps[score_changes]
+
+        # Build ROC with endpoints
+        fpr = np.r_[0.0, fps_u / N, 1.0]
+        tpr = np.r_[0.0, tps_u / P, 1.0]
+
+        # Standard AUC
         auc = np.trapz(tpr, fpr)
 
-        # Log-space AUC calculation
-        log_tpr = np.log10(np.clip(tpr, 1e-5, 1))
-        log_fpr = np.log10(np.clip(fpr, 1e-5, 1))
-        log_tpr = (log_tpr + 5) / 5.0
-        log_fpr = (log_fpr + 5) / 5.0
+        # Log-space AUC (non-standard, but sometimes reported in MIAs)
+        eps = 1e-12
+        fpr_clip = np.clip(fpr, eps, 1.0)
+        tpr_clip = np.clip(tpr, eps, 1.0)
+        log_fpr = (np.log10(fpr_clip) + 12) / 12.0  # rescale ~[0,1]
+        log_tpr = (np.log10(tpr_clip) + 12) / 12.0
         log_auc = np.trapz(log_tpr, log_fpr)
 
-        # TPRs at specific FPR thresholds
-        fpr_thresholds = [0.1, 0.02, 0.01, 0.001, 0.0001]
-        fpr_str = ["0.1", "0.02", "0.01", "0.001", "0.0001"]
-        tprs_at_thresholds = {}
-        for i, threshold in enumerate(fpr_thresholds):
-            indices_below_threshold = np.where(fpr < threshold)[0]
-            if len(indices_below_threshold) > 0:
-                tprs_at_thresholds[fpr_str[i]] = tpr[indices_below_threshold[-1]]
-            else:
-                tprs_at_thresholds[fpr_str[i]] = 0.0
+        # TPR at fixed FPRs via interpolation (monotone vectors)
+        fpr_targets = np.array([0.1, 0.02, 0.01, 0.001, 0.0001], dtype=float)
+        tprs_at = np.interp(fpr_targets, fpr, tpr, left=0.0, right=1.0)
+        tprs = {k: v for k, v in zip(["0.1","0.02","0.01","0.001","0.0001"], tprs_at)}
+
+        # Partial AUC up to a low-FPR cutoff (default 1%)
+        # Interpolate curve up to cutoff and integrate
+        cutoff = float(low_fpr_cutoff)
+        if cutoff < fpr[-1]:
+            tpr_at_cut = np.interp(cutoff, fpr, tpr)
+            fpr_p = np.r_[fpr[fpr <= cutoff], cutoff]
+            tpr_p = np.r_[tpr[fpr <= cutoff], tpr_at_cut]
+            pauc = np.trapz(tpr_p, fpr_p) / cutoff  # normalized pAUC in [0,1]
+        else:
+            pauc = 1.0
 
         return {
-            "auc": auc,
-            "log_auc": log_auc,
-            "tprs": tprs_at_thresholds
+            "auc": float(auc),
+            "log_auc": float(log_auc),
+            "tprs": tprs,
+            "pauc_<=1%": float(pauc),
         }
-   
+
     @staticmethod
     def compute_batch_gradients(data_loader, model, loss_fn, device):
         model.train()

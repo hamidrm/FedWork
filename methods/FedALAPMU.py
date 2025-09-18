@@ -8,7 +8,7 @@ from utils.logger import *
 from utils.profiler import *
 from utils.common import Common
 from utils.security.MIAPartial import *
-from utils.security.FedALA import *
+from utils.security.FedALAQ import *
 from utils.security.DataManipulation import *
 from torch.utils.data import DataLoader, SequentialSampler, BatchSampler
 import math

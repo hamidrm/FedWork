@@ -35,7 +35,7 @@ class FederatedLearningClass(ABC):
         # Is this called by the Server-Side?
         if server != None:
             self.server = server
-
+    @torch.no_grad()
     def aggregate(self, clients_models, global_model):
         
         for key in global_model.keys():
