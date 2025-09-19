@@ -55,18 +55,18 @@ class fedwork:
         except TypeError as e:
             return def_val
 
-    def create_datasets(self, dataset_cfg, num_of_nodes, output_dir = const.OUTPUT_DIR):
-        random.seed(42); np.random.seed(42); torch.manual_seed(42)
+    def create_datasets(self, dataset_cfg, num_of_nodes, output_dir = const.OUTPUT_DIR, seed = 42):
+
         dir_path = os.path.join(output_dir, "dataset")
         self.fl_context["dataset_path"] = dir_path
 
         # 1) read config vars first
         vars = dataset_cfg["var"]
-        heterogeneous   = self.get_var(vars, "heterogeneous", bool, False)
         non_iid_level   = self.get_var(vars, "non_iid_level", float, 0.5)
         non_iid_alpha   = self.get_var(vars, "alpha", float, sys.float_info.min)
         train_batch_size= self.get_var(vars, "train_batch_size", int, 128)
         test_batch_size = self.get_var(vars, "test_batch_size", int, 128)
+        num_workers = self.get_var(vars, "num_workers", int, 0)
         save_graph      = self.get_var(vars, "save_graph", bool, True)
         enclose_info    = self.get_var(vars, "enclosed_info", bool, False)
         use_dirichlet   = self.get_var(vars, "dirichlet", bool, False)
@@ -85,7 +85,7 @@ class fedwork:
 
         if partitions:
             dataset_train_list, dataset_test = DS.build_loaders_from_partitions(
-                partitions, dataset_cfg["@type"], train_batch_size, test_batch_size, base_seed=0
+                partitions, dataset_cfg["@type"], train_batch_size, test_batch_size, base_seed=seed, num_workers=num_workers
             )
             self.fl_context["dataset_train_list"] = dataset_train_list
             self.fl_context["dataset_train_test"] = dataset_test
@@ -93,8 +93,8 @@ class fedwork:
 
         # 3) build fresh, save partitions
         dataset_train_list, dataset_test, partitions = DS.create_datasets(
-            num_of_nodes, dataset_cfg["@type"], heterogeneous, non_iid_level,
-            train_batch_size, test_batch_size, use_dirichlet, 0, save_graph, enclose_info, dir_path
+            num_of_nodes, dataset_cfg["@type"], non_iid_level,
+            train_batch_size, test_batch_size, use_dirichlet, num_workers, save_graph, enclose_info, dir_path, seed
         )
         os.makedirs(dir_path, exist_ok=True)
         for i, idxs in enumerate(partitions):
@@ -220,7 +220,7 @@ class fedwork:
         
         # Step 1.
         # Generate datasets
-        train_dataset_list, test_dataset = self.create_datasets(dataset_cfg, int(fedwork_cfg["@num_of_nodes"]), output_path)
+        train_dataset_list, test_dataset = self.create_datasets(dataset_cfg, int(fedwork_cfg["@num_of_nodes"]), output_path, seed_value)
         
         attr_net_port = "@net_port"
         def_net_port = "12345"
