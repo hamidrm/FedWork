@@ -18,35 +18,79 @@ def _make_eval_transforms_and_datasets(ds_type: str):
     if ds_type == "MNIST":
         tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
         train_dataset = datasets.MNIST(root="./dataset/data", train=True, transform=tf, download=True)
-        test_dataset = datasets.MNIST(root="./dataset/data", train=False, transform=tf)
+        test_dataset  = datasets.MNIST(root="./dataset/data", train=False, transform=tf)
         dataset_label_list = train_dataset.targets.tolist()
+
     elif ds_type == "CIFAR10":
-        stats = ((0.49139968, 0.48215841, 0.44653091), (0.24703223, 0.24348513, 0.26158784))
+        stats = ((0.49139968, 0.48215841, 0.44653091),
+                 (0.24703223, 0.24348513, 0.26158784))
         tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize(*stats)])
         train_dataset = datasets.CIFAR10(root="./dataset/data", train=True, transform=tf, download=True)
-        test_dataset = datasets.CIFAR10(root="./dataset/data", train=False, transform=tf)
+        test_dataset  = datasets.CIFAR10(root="./dataset/data", train=False, transform=tf)
         dataset_label_list = train_dataset.targets
+
     elif ds_type == "CIFAR100":
         mean = (0.5071, 0.4865, 0.4409)
-        std = (0.2673, 0.2564, 0.2761)
+        std  = (0.2673, 0.2564, 0.2761)
         tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
         train_dataset = datasets.CIFAR100(root="./dataset/data", train=True, transform=tf, download=True)
-        test_dataset = datasets.CIFAR100(root="./dataset/data", train=False, transform=tf, download=True)
+        test_dataset  = datasets.CIFAR100(root="./dataset/data", train=False, transform=tf, download=True)
         dataset_label_list = train_dataset.targets
+
     elif ds_type == "FashionMNIST":
         tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
         train_dataset = datasets.FashionMNIST(root="./dataset/data", train=True, transform=tf, download=True)
-        test_dataset = datasets.FashionMNIST(root="./dataset/data", train=False, transform=tf)
+        test_dataset  = datasets.FashionMNIST(root="./dataset/data", train=False, transform=tf)
         dataset_label_list = train_dataset.targets.tolist()
+
+    elif ("-" in ds_type) and ds_type.split("-")[0].lower() == "medmnist":
+        tf = transforms.Compose([transforms.ToTensor()])
+        name = ds_type.split("-")[1]
+        train_dataset = MedMNIST.MedMNIST(dataset_name=name, root="./dataset/data",
+                                          train=True, transform=tf, download=True)
+        test_dataset  = MedMNIST.MedMNIST(dataset_name=name, root="./dataset/data",
+                                          train=False, transform=tf)
+        dataset_label_list = train_dataset.targets.tolist()
+
+    else:
+        raise ValueError(f"Dataset '{ds_type}' not recognized.")
+
+    return train_dataset, test_dataset, dataset_label_list
+
+
+def _make_train_transforms_and_datasets(ds_type: str):
+    if ds_type == "MNIST":
+        tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+        train_dataset = datasets.MNIST(root="./dataset/data", train=True, transform=tf, download=True)
+    elif ds_type == "CIFAR10":
+        stats = ((0.49139968, 0.48215841, 0.44653091), (0.24703223, 0.24348513, 0.26158784))
+        tf = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(*stats),
+        ])
+        train_dataset = datasets.CIFAR10(root="./dataset/data", train=True, transform=tf, download=True)
+    elif ds_type == "CIFAR100":
+        mean = (0.5071, 0.4865, 0.4409)
+        std = (0.2673, 0.2564, 0.2761)
+        tf = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+        ])
+        train_dataset = datasets.CIFAR100(root="./dataset/data", train=True, transform=tf, download=True)
+    elif ds_type == "FashionMNIST":
+        tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+        train_dataset = datasets.FashionMNIST(root="./dataset/data", train=True, transform=tf, download=True)
     elif ("-" in ds_type) and ds_type.split("-")[0].lower() == "medmnist":
         tf = transforms.Compose([transforms.ToTensor()])
         name = ds_type.split("-")[1]
         train_dataset = MedMNIST.MedMNIST(dataset_name=name, root="./dataset/data", train=True, transform=tf, download=True)
-        test_dataset = MedMNIST.MedMNIST(dataset_name=name, root="./dataset/data", train=False, transform=tf)
-        dataset_label_list = train_dataset.targets.tolist()
     else:
         raise ValueError(f"Dataset '{ds_type}' not recognized.")
-    return train_dataset, test_dataset, dataset_label_list
+    return train_dataset
 
 
 def _cpu_dl_generator(seed: int) -> torch.Generator:
@@ -56,9 +100,10 @@ def _cpu_dl_generator(seed: int) -> torch.Generator:
 
 
 def build_loaders_from_partitions(
-    partitions, ds_type: str, train_batch_size: int, test_batch_size: int, base_seed: int = 0, num_workers: int = 0
+    partitions, ds_type: str, train_batch_size: int, test_batch_size: int, base_seed: int = 0, num_workers: int = 0, augment: bool = True
 ):
-    train_dataset, test_dataset, _ = _make_eval_transforms_and_datasets(ds_type)
+    train_dataset = _make_train_transforms_and_datasets(ds_type) if augment else _make_eval_transforms_and_datasets(ds_type)[0]
+    _, test_dataset, _ = _make_eval_transforms_and_datasets(ds_type)
 
     train_loaders = []
     for cid, idxs in enumerate(partitions):
@@ -104,11 +149,10 @@ def _infer_ds_type_from_base(base_ds):
     if isinstance(base_ds, datasets.CIFAR100):  return "CIFAR100"
     if isinstance(base_ds, datasets.MNIST):     return "MNIST"
     if isinstance(base_ds, datasets.FashionMNIST): return "FashionMNIST"
-    # MedMNIST wrapper
     try:
         from dataset import dataset
         if isinstance(base_ds, dataset.MedMNIST.MedMNIST):
-            return f"medmnist-{base_ds.flag}"  # e.g., "medmnist-PathMNIST"
+            return f"medmnist-{base_ds.flag}"
     except Exception:
         raise ValueError(f"Unsupported base dataset type: {type(base_ds)}")
     
@@ -153,10 +197,10 @@ def create_datasets(
     np.random.seed(base_seed)
     torch.manual_seed(base_seed)
 
-    train_dataset, _, dataset_label_list = _make_eval_transforms_and_datasets(ds_type)
+    train_dataset_eval, _, dataset_label_list = _make_eval_transforms_and_datasets(ds_type)
 
     train_classes_num = int(len(np.unique(dataset_label_list)))
-    train_total_dataset_size = len(train_dataset)
+    train_total_dataset_size = len(train_dataset_eval)
     train_groups_eq_size = train_total_dataset_size // train_ds_num
 
     classes = []
@@ -170,10 +214,10 @@ def create_datasets(
             split_indices[i].append(all_indices[train_ds_num * train_groups_eq_size + i])
         partitions = split_indices
         for subset_indices in split_indices:
-            if isinstance(train_dataset.targets, list):
-                classes.append([train_dataset.targets[i] for i in subset_indices])
+            if isinstance(train_dataset_eval.targets, list):
+                classes.append([train_dataset_eval.targets[i] for i in subset_indices])
             else:
-                classes.append([train_dataset.targets[i].item() for i in subset_indices])
+                classes.append([train_dataset_eval.targets[i].item() for i in subset_indices])
             client_labels = [dataset_label_list[i] for i in subset_indices]
             class_counts = Counter(client_labels)
             client_distributions.append(class_counts)
@@ -197,13 +241,13 @@ def create_datasets(
             client_labels = [dataset_label_list[i] for i in assigned_indices]
             class_counts = Counter(client_labels)
             client_distributions.append(class_counts)
-            if isinstance(train_dataset.targets, list):
-                classes.append([train_dataset.targets[i] for i in assigned_indices])
+            if isinstance(train_dataset_eval.targets, list):
+                classes.append([train_dataset_eval.targets[i] for i in assigned_indices])
             else:
-                classes.append([train_dataset.targets[i].item() for i in assigned_indices])
+                classes.append([train_dataset_eval.targets[i].item() for i in assigned_indices])
 
     train_datasets, test_dataset_loader = build_loaders_from_partitions(
-        partitions, ds_type, train_batch_size, test_batch_size, base_seed=base_seed, num_workers=num_workers
+        partitions, ds_type, train_batch_size, test_batch_size, base_seed=base_seed, num_workers=num_workers, augment=True
     )
 
     if save_graph:
@@ -212,7 +256,7 @@ def create_datasets(
         for client_index in range(len(train_datasets)):
             for class_index in unique_classes:
                 graph_map[class_index][client_index] = classes[client_index].count(class_index)
-        max_val = len(train_dataset.targets)
+        max_val = len(train_dataset_eval.targets)
         normalized_matrix = [[val / max_val for val in row] for row in graph_map]
         figure_width = max(len(train_datasets) / 2, 8)
         figure_height = max(len(unique_classes) / 2, 6)
@@ -222,7 +266,7 @@ def create_datasets(
             plt.text(
                 len(train_datasets) + 1,
                 len(unique_classes) / 2,
-                f"{type(train_dataset).__name__} \nNon-i.i.d level: {non_iid_level_alpha}\nTrain batch size: {train_batch_size}\nTest batch size: {test_batch_size}",
+                f"{type(train_dataset_eval).__name__} \nNon-i.i.d level: {non_iid_level_alpha}\nTrain batch size: {train_batch_size}\nTest batch size: {test_batch_size}",
                 fontsize=8,
                 color="red",
                 rotation=90,
@@ -235,7 +279,7 @@ def create_datasets(
         output_directory = os.path.join(os.getcwd(), consts.OUTPUT_DIR) if path is None else path
         dir_path = os.path.join(output_directory, "dataset")
         os.makedirs(dir_path, exist_ok=True)
-        plt.yticks([i for i in range(len(unique_classes))], train_dataset.classes)
+        plt.yticks([i for i in range(len(unique_classes))], train_dataset_eval.classes)
         plt.xticks([i for i in range(train_ds_num)], [(i + 1) for i in range(train_ds_num)])
         current_time = datetime.now()
         time_str = current_time.strftime("%Y_%m_%d_%H_%M_%S")
