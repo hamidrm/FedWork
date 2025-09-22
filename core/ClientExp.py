@@ -9,19 +9,15 @@ from utils.logger import *
 from utils.security.DataManipulation import *
 import copy
 from utils.common import *
+from collections import Counter
 
+
+    
 class ClientExp:
     def __init__(self, name, id, serverInstance, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, method: FederatedLearningClass,executer = "cpu"):
         
         self.client_model = model
         self.global_model = copy.deepcopy(model)
-        if hyperparameters.momentum is None:
-            self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate)
-        elif hyperparameters.weight_decay is None:
-            self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum)
-        else:
-            self.client_optimizer = optimizer(self.client_model.parameters(), lr=hyperparameters.learning_rate, momentum=hyperparameters.momentum, weight_decay=hyperparameters.weight_decay)
-
         self.criterion = loss().to(executer)
         self.executer = executer
         self.dataset = train_ds
@@ -32,12 +28,15 @@ class ClientExp:
         self.training_count = 0
         self.serverIns = serverInstance
         self.lr = hyperparameters.learning_rate
+        self.momentum = hyperparameters.momentum
+        self.weight_decay = hyperparameters.weight_decay
+        self.optimizer = optimizer
         logger.log_debug(f"[{name}]: Initialization done.")
 
 
     def set_model(self, model):
-        self.client_model.load_state_dict(model)
-        self.global_model.load_state_dict(model)
+        self.client_model.load_state_dict(model, strict=False)
+        self.global_model.load_state_dict(model, strict=False)
 
     def get_model_dict(self):
         return self.client_model.state_dict()
@@ -51,8 +50,15 @@ class ClientExp:
         self.training_count += 1
 
         if lr != None:
-            for param_group in self.client_optimizer.param_groups:
-                param_group['lr'] = lr
+            self.lr = lr
+
+        if self.momentum is None:
+            self.client_optimizer = self.optimizer(self.client_model.parameters(), lr=self.lr)
+        elif self.weight_decay is None:
+            self.client_optimizer = self.optimizer(self.client_model.parameters(), lr=self.lr, momentum=self.momentum)
+        else:
+            self.client_optimizer = self.optimizer(self.client_model.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
+
 
         for epoch in range(epochs_num):
             self.total_epochs += 1

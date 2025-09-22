@@ -73,8 +73,8 @@ class Client:
             logger.log_warning(f"Undefined event received (evt={evt})!")
 
     def set_model(self, model):
-        self.client_model.load_state_dict(model)
-        self.global_model.load_state_dict(model)
+        self.client_model.load_state_dict(model, strict=False)
+        self.global_model.load_state_dict(model, strict=False)
 
     def get_model_dict(self):
         return self.client_model.state_dict()

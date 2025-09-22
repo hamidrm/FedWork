@@ -114,7 +114,7 @@ def build_loaders_from_partitions(
             batch_size=train_batch_size,
             shuffle=True,
             num_workers=num_workers,
-            worker_init_fn=worker_init_fn if num_workers > 0 else None,
+            worker_init_fn=make_worker_init_fn(base_seed, cid) if num_workers > 0 else None,
             generator=g,
             persistent_workers=bool(num_workers),
         )
@@ -125,18 +125,19 @@ def build_loaders_from_partitions(
         batch_size=test_batch_size,
         shuffle=False,
         num_workers=num_workers,
-        worker_init_fn=worker_init_fn if num_workers > 0 else None,
+        worker_init_fn=make_worker_init_fn(base_seed, 0) if num_workers > 0 else None,
         persistent_workers=bool(num_workers),
     )
 
     return train_loaders, test_loader
 
 
-def worker_init_fn(worker_id):
-    s = 10_000 + worker_id
-    random.seed(s)
-    np.random.seed(s)
-    torch.manual_seed(s)
+def make_worker_init_fn(base_seed: int, client_id: int):
+    def _init_fn(worker_id):
+        s = 10_000 + 97*base_seed + 31*client_id + worker_id
+        import random, numpy as np, torch
+        random.seed(s); np.random.seed(s); torch.manual_seed(s)
+    return _init_fn
 
 
 def make_generator(seed: int) -> torch.Generator:
@@ -169,7 +170,7 @@ def build_client_loader(train_dataset, indices, batch_size, base_seed, client_id
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        worker_init_fn=worker_init_fn if num_workers > 0 else None,
+        worker_init_fn=make_worker_init_fn(base_seed, client_id) if num_workers > 0 else None,
         generator=g,
         persistent_workers=bool(num_workers),
     )

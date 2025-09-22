@@ -39,9 +39,10 @@ class FederatedLearningClass(ABC):
     def aggregate(self, clients_models, global_model):
         
         for key in global_model.keys():
-            torch_list_weights = torch.stack([clients_models[i][1][key].float() * self.datasets_weights[clients_models[i][0]] for i in range(len(clients_models))],0)
-            total_weight = sum([self.datasets_weights[clients_models[i][0]] for i in range(len(clients_models))])
-            global_model[key] = torch_list_weights.sum(0) / total_weight
+            if Common.is_trainable(global_model, key):
+                torch_list_weights = torch.stack([clients_models[i][1][key].float() * self.datasets_weights[clients_models[i][0]] for i in range(len(clients_models))],0)
+                total_weight = sum([self.datasets_weights[clients_models[i][0]] for i in range(len(clients_models))])
+                global_model[key] = torch_list_weights.sum(0) / total_weight
 
     def round_num(self):
         return self.server.round_number

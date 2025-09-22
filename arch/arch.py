@@ -19,6 +19,7 @@ class BaseArch(Enum):
     MobileNetV2 = "MobileNetV2"
     ShuffleNetV2 = "ShuffleNetV2"
     AllCNN = "AllCNN"
+    CNNSimpleLite = "CNNSimpleLite"
 
 class ActivationFunction(Enum):
     ReLUFunction = "relu"
