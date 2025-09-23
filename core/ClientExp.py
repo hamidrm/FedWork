@@ -59,10 +59,10 @@ class ClientExp:
         else:
             self.client_optimizer = self.optimizer(self.client_model.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
 
-
+        
         for epoch in range(epochs_num):
             self.total_epochs += 1
-
+            number_of_samples = 0
             self.client_model.train()
 
             running_loss = 0
@@ -80,7 +80,7 @@ class ClientExp:
                 labels = labels.to(self.executer)
 
                 inputs, labels = self.method.client_training_get_data(inputs, labels)
-
+                number_of_samples += labels.size(0)
                 client_train_dict["inputs"] = inputs
                 client_train_dict["labels"] = labels
                 
@@ -109,8 +109,8 @@ class ClientExp:
             if model is not None:
                 self.client_model = model
             
-            train_loss = running_loss / len(self.dataset.dataset)
-            train_accuracy = running_corrects / len(self.dataset.dataset)
+            train_loss = running_loss / max(1, number_of_samples)
+            train_accuracy = running_corrects / max(1, number_of_samples)
             
             epoch_info = {}
             epoch_info["accuracy"] = train_accuracy.item()

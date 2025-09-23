@@ -55,10 +55,10 @@ class FederatedLearningClass(ABC):
         return all_clients
 
     def start_training(self):
-        eval_loss, eval_accuracy = self.server.evaluate_model()
+
         if self.server.round_number != self.num_of_rounds:
             self.server.start_round(self.clients_epochs)
-            return (eval_loss, eval_accuracy)
+            return self.server.evaluate_model()
         else:
             return None
     

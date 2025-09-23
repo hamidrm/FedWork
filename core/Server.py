@@ -199,7 +199,7 @@ class Server:
                     break
                 else:
                     eval_loss, eval_accuracy = eval_loss_eval_accuracy
-                    logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy} , Loss: {eval_loss}")
+                    logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy} , Loss: {eval_loss} at round {self.round_number}")
                 
         if not self.experimentMode:
             if not self.method_is_processing_lock.locked():
@@ -296,7 +296,7 @@ class Server:
         self.global_model_dict = self.global_model.state_dict()
 
         self.fl_method.aggregate(models_list, self.global_model_dict)
-        self.global_model.load_state_dict(self.global_model_dict)
+        self.global_model.load_state_dict(self.global_model_dict, strict=False)
         profiler.stop_measuring(MEASURE_PROBE_AGGR_TIME, self.round_number)
 
         self.update_clients()
