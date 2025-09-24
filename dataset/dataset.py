@@ -175,70 +175,6 @@ def build_client_loader(train_dataset, indices, batch_size, base_seed, client_id
         persistent_workers=bool(num_workers),
     )
 
-def dirichlet_partition_balanced(labels, n_clients, alpha, rng):
-    labels = np.array(labels)
-    K = int(np.max(labels)) + 1
-    N = len(labels)
-
-    # per-client quotas: totals will be equal (±1)
-    quota = np.full(n_clients, N // n_clients, dtype=int)
-    quota[: N % n_clients] += 1
-
-    # indices per class, shuffled
-    idxs_by_class = [np.where(labels == k)[0] for k in range(K)]
-    for k in range(K):
-        rng.shuffle(idxs_by_class[k])
-
-    # sample class→client proportions
-    P = rng.dirichlet([alpha] * n_clients, K)  # shape [K, C]
-
-    # initial integer counts per (class, client) using largest remainder
-    counts = np.zeros((K, n_clients), dtype=int)
-    for k in range(K):
-        n_k = len(idxs_by_class[k])
-        raw = P[k] * n_k
-        base = np.floor(raw).astype(int)
-        rem  = n_k - base.sum()
-        if rem > 0:
-            order = np.argsort(raw - base)[::-1]
-            base[order[:rem]] += 1
-        counts[k] = base
-
-    # enforce client quotas (column sums)
-    col = counts.sum(0)
-    over = list(np.where(col > quota)[0])
-    under = list(np.where(col < quota)[0])
-
-    # move counts class-by-class from overfull to underfull clients
-    while over and under:
-        c = over[-1]     # an overfull client
-        u = under[-1]    # an underfull client
-        need = min(col[c] - quota[c], quota[u] - col[u])
-        if need == 0:
-            if col[c] <= quota[c]: over.pop()
-            if col[u] >= quota[u]: under.pop()
-            continue
-        # take from classes where c has most items
-        for k in np.argsort(-counts[:, c]):
-            take = min(counts[k, c], need)
-            if take > 0:
-                counts[k, c] -= take
-                counts[k, u] += take
-                col[c] -= take; col[u] += take
-                need -= take
-                if need == 0: break
-        if col[c] <= quota[c]: over.pop()
-        if col[u] >= quota[u]: under.pop()
-
-    # build partitions
-    parts = [[] for _ in range(n_clients)]
-    for k in range(K):
-        start = 0
-        for c in range(n_clients):
-            n = counts[k, c]
-            parts[c].extend(idxs_by_class[k][start:start+n].tolist())
-            start += n
-    return parts
 
 def create_datasets(
     train_ds_num=5,
@@ -287,10 +223,20 @@ def create_datasets(
             class_counts = Counter(client_labels)
             client_distributions.append(class_counts)
     else:
-        subset_indices_lists = dirichlet_partition_balanced(dataset_label_list, train_ds_num, non_iid_level_alpha, rng)
+        if non_iid_level_alpha <= 0:
+            raise ValueError("non_iid_level_alpha must be > 0 when use_dirichlet=True.")
+        class_proportions = rng.dirichlet([non_iid_level_alpha] * train_ds_num, train_classes_num)
+        subset_indices_lists = [[] for _ in range(train_ds_num)]
+        for class_index in range(train_classes_num):
+            class_indices = [i for i, lbl in enumerate(dataset_label_list) if lbl == class_index]
+            class_indices = rng.permutation(class_indices).tolist()
+            sizes = rng.multinomial(len(class_indices), class_proportions[class_index])
+            offset = 0
+            for client_id, size in enumerate(sizes):
+                assigned_indices = class_indices[offset : offset + size]
+                offset += size
+                subset_indices_lists[client_id].extend(assigned_indices)
         partitions = subset_indices_lists
-        perm = rng.permutation(train_ds_num).tolist()
-        partitions = [partitions[i] for i in perm]
         for client_id in range(train_ds_num):
             assigned_indices = subset_indices_lists[client_id]
             client_labels = [dataset_label_list[i] for i in assigned_indices]

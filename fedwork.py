@@ -279,11 +279,16 @@ class fedwork:
 
             Common.set_seed_over_method(seed_value)
             train_dataset_list, test_dataset = self.create_datasets(dataset_cfg, int(fedwork_cfg["@num_of_nodes"]), output_path)
-            Common.set_seed_over_method(seed_value)
+            
             attr_method_platform = "@platform"
             attr_method_platform_def = "cpu"
             method_platform = method[attr_method_platform] if attr_method_platform in method.keys() else attr_method_platform_def
 
+            attr_method_seed = "@seed"
+            attr_method_seed_def = seed_value
+            method_seed = method[attr_method_seed] if attr_method_seed in method.keys() else attr_method_seed_def
+
+            Common.set_seed_over_method(method_seed)
             method_num_of_epochs = self.get_var(method["var"], "epochs_num", int, 5)
             self.fl_context["methods_list"][method_name]["num_of_epochs"] = method_num_of_epochs
             method_args = self.get_var(method["var"], "args", str, "")
