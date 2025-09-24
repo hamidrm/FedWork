@@ -4,7 +4,7 @@ import torch.nn as nn
 def conv_bn_relu(in_c, out_c, k=3, s=1, p=0):
     return nn.Sequential(
         nn.Conv2d(in_c, out_c, kernel_size=k, stride=s, padding=p, bias=False),
-        nn.BatchNorm2d(out_c),
+        nn.GroupNorm(32, out_c),
         nn.ReLU(inplace=True),
     )
 

@@ -365,4 +365,175 @@ class Plotter:
 
 
         plt.plot(x, y, alpha=0.9, label=label, color=c, linestyle=ls, linewidth=lw, marker=m)
+        
+    def plot_envelope(self, x, Y, label, style_str, style_index):
+
+        # ---------- Parse style_str ----------
+        colors = None
+        linestyles = None
+        linewidths = None
+        markers = None
+        colors_map = None
+
+        alpha_fill = 0.25
+        show_minmax = True
+        sort_x = False
+        fill_intervals = None
+
+        def _get_val(key, conv=str):
+            if f"{key}=" in style_str:
+                return conv(style_str.split(f"{key}=")[1].split(";")[0].strip())
+            return None
+
+        if "linewidths=" in style_str:
+            linewidths = list(map(float, style_str.split("linewidths=")[1].split(";")[0].strip().split(",")))
+
+        colors_map = _get_val("colors_map")
+        # We'll set `c` later after we know how many styles we need; init to None
+        c = None
+        if "colors=" in style_str:
+            colors = style_str.split("colors=")[1].split(";")[0].strip().split(",")
+        if "linestyles=" in style_str:
+            linestyles = style_str.split("linestyles=")[1].split(";")[0].strip().split(",")
+        if "markers=" in style_str:
+            markers = style_str.split("markers=")[1].split(";")[0].strip().split(",")
+
+        v = _get_val("alpha_fill", float)
+        if v is not None:
+            alpha_fill = float(v)
+
+        v = _get_val("show_minmax")
+        if v is not None:
+            show_minmax = str(v).lower() in ("1", "true", "yes", "y")
+
+        v = _get_val("sort_x")
+        if v is not None:
+            sort_x = str(v).lower() in ("1", "true", "yes", "y")
+
+        # Parse fill_range= a:b|c:d (or commas inside)
+        v = _get_val("fill_range")
+        if v:
+            s = v.replace("[", "").replace("]", "").replace("(", "").replace(")", "").replace(" ", "")
+            parts = re.split(r"\|", s)
+            intervals = []
+            for p in parts:
+                if not p:
+                    continue
+                if ":" in p:
+                    a, b = p.split(":")[:2]
+                elif "," in p:
+                    a, b = p.split(",")[:2]
+                else:
+                    continue
+                a, b = float(a), float(b)
+                if b < a:
+                    a, b = b, a
+                intervals.append((a, b))
+            if intervals:
+                fill_intervals = intervals
+
+        # Resolve per-style items
+        ls = linestyles[style_index] if (linestyles is not None and len(linestyles) > style_index) else None
+        lw = linewidths[style_index] if (linewidths is not None and len(linewidths) > style_index) else None
+        m  = markers[style_index]    if (markers    is not None and len(markers)    > style_index) else None
+
+        # ---------- Convert inputs ----------
+        def _to_np_1d(a):
+            if isinstance(a, torch.Tensor):
+                a = a.detach()
+                if a.is_cuda:
+                    a = a.cpu()
+                return a.flatten().numpy()
+            elif isinstance(a, (list, tuple)):
+                return np.asarray(a, dtype=float).ravel()
+            else:
+                return np.asarray(a, dtype=float).ravel()
+
+        def _curve_to_np_1d(a):
+            # each curve in Y
+            if isinstance(a, torch.Tensor):
+                a = a.detach()
+                if a.is_cuda:
+                    a = a.cpu()
+                return a.flatten().numpy()
+            elif isinstance(a, (list, tuple, np.ndarray)):
+                return np.asarray(a, dtype=float).ravel()
+            else:
+                raise TypeError("Each element of Y must be a 1D tensor/list/array.")
+
+        x_np = _to_np_1d(x)
+        Y_np_list = [_curve_to_np_1d(y) for y in Y]
+        n = x_np.size
+        for i, y_arr in enumerate(Y_np_list):
+            if y_arr.size != n:
+                raise ValueError(f"Y[{i}] length {y_arr.size} != len(x) {n}")
+
+        Y_np = np.vstack(Y_np_list)  # (k, n)
+
+        # ---------- Optional sort ----------
+        if sort_x:
+            order = np.argsort(x_np)
+            x_np = x_np[order]
+            Y_np = Y_np[:, order]
+
+        # ---------- Envelope computations ----------
+        y_min = np.nanmin(Y_np, axis=0)
+        y_max = np.nanmax(Y_np, axis=0)
+        y_avg = (y_min + y_max) / 2.0
+
+        # ---------- Color resolution ----------
+        # If explicit colors list provided, pick by style_index
+        if colors is not None:
+            if isinstance(colors, np.ndarray):
+                # colormap already sampled into array
+                if colors.shape[0] > style_index:
+                    c = colors[style_index]
+            else:
+                if len(colors) > style_index:
+                    c = colors[style_index]
+
+        # If still no color and a colors_map is requested, sample it
+        if c is None and colors_map is not None:
+            try:
+                num_colors = (len(linewidths) if linewidths is not None else max(1, style_index + 1))
+                if colors_map in ("tab10", "Set2") or hasattr(plt.cm, colors_map):
+                    cmap = getattr(plt.cm, colors_map) if hasattr(plt.cm, colors_map) else plt.get_cmap(colors_map)
+                    sampled = cmap(np.linspace(0, 1, num_colors))
+                    if sampled.shape[0] > style_index:
+                        c = sampled[style_index]
+                elif colors_map == "husl" and hasattr(plt.cm, "husl"):
+                    sampled = plt.cm.husl(np.linspace(0, 1, num_colors))
+                    c = sampled[style_index]
+                else:
+                    logger.warning("Invalid color map!")
+            except Exception:
+                logger.warning("Invalid color map!")
+                c = None
+
+        base_color = c if c is not None else 'tab:blue'
+        avg_lw = lw if lw is not None else 2.5
+
+        # ---------- Plot ----------
+        # Faint min/max outlines
+        if show_minmax:
+            plt.plot(x_np, y_min, color='0.65', lw=1, label=f'{label} min')
+            plt.plot(x_np, y_max, color='0.65', lw=1, label=f'{label} max')
+
+        # Build mask for filling
+        if fill_intervals is None:
+            mask = np.ones_like(x_np, dtype=bool)
+            fill_lbl = f'{label} envelope'
+        else:
+            mask = np.zeros_like(x_np, dtype=bool)
+            for x0, x1 in fill_intervals:
+                mask |= (x_np >= x0) & (x_np <= x1)
+            fill_lbl = f'{label} envelope (restricted)'
+
+        # Fill between min/max only where mask is True
+        plt.fill_between(x_np, y_min, y_max, where=mask, interpolate=True,
+                        alpha=alpha_fill, color=base_color, label=fill_lbl)
+
+        # Average line (primary)
+        plt.plot(x_np, y_avg, label=f'{label} avg',
+             color=base_color, linestyle=ls, linewidth=avg_lw, marker=m, alpha=0.95)
 

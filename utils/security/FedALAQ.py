@@ -71,8 +71,8 @@ class FedALAQDefense:
         profiler.save_variable(f"FedALAQ_no_layers_{client_name}", layers_count, self.counter - 1)
         ratio = (layers_count /  total_layers) * 100.0
         logger.log_info(f"Client '{client_name}' masked layers: {layers_count} / {total_layers} ({ratio:.2f}%)")
-        for k in layers.keys():
-            layers[k] = layers[k] + torch.randn_like(layers[k]) * self.noise_std
+        #for k in layers.keys():
+        #    layers[k] = layers[k] + torch.randn_like(layers[k]) * self.noise_std
         
         
         
