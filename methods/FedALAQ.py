@@ -36,7 +36,7 @@ class FedALAQ(FederatedLearningClass):
         self.gradient_sparsifier_ratio = self.get_arg(float, "gradient_sparsifier", 1.0)
         self.q_levels = self.get_arg(int, "randomized_quantization_levels", 0)
         self.fedmia_stride = self.get_arg(int, "fedmia_stride", 10)
-        
+        self.contributors_percent = float(self.get_arg(int, "contributors_percent", 100)) / 100.0
         self.p_k_list = []
         self.fla = FedALAQDefense(self.lcr, self.alpha, self.ldp_noise_std)
         self.mixup = MixUpDefense(self.mixup_alpha)
@@ -71,10 +71,7 @@ class FedALAQ(FederatedLearningClass):
         
         clients_models_copy = copy.deepcopy(clients_models)
 
-        for i, client_model in enumerate(clients_models_copy):
-            for key in client_model[1].keys():
-                if Common.is_trainable(global_model, key):
-                    clients_models_copy[i][1][key] += global_model[key]
+
                     
         self.fla.aggregate(clients_models, global_model, self.datasets_weights, self.p_k_list)
         
@@ -83,6 +80,11 @@ class FedALAQ(FederatedLearningClass):
 
         if self.round_num() % self.fedmia_stride == 0:
             target_model_id = 0
+            for i, client_model in enumerate(clients_models_copy):
+                for key in client_model[1].keys():
+                    if Common.is_trainable(global_model, key):
+                        clients_models_copy[i][1][key] += global_model[key]
+            
             res_total = PrivacyMiaUtils.FedMiaExec(self.fedmia_attack, global_model,
                                        clients_models_copy, target_model_id,
                                        self.method_dict["arch"], self.lr, self.platform)
@@ -182,7 +184,11 @@ class FedALAQ(FederatedLearningClass):
         return super().ready_to_aggregate(num_of_received_model)
     
 
-
+    def select_clients_to_train(self, all_clients):
+        if self.contributors_percent != 1.0:
+            return self.select_random_clients(all_clients, self.contributors_percent)
+        return super().select_clients_to_train(all_clients)
+    
     def client_training_get_data(self, inputs, labels):
         inputs, self.labels_actual, labels, _ = self.mixup.get_data(inputs, labels)
         return inputs, labels

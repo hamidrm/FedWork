@@ -57,7 +57,7 @@ class Plotter:
         return np.asarray(a).reshape(-1)
 
     def plot_tradeoff_2d(self, x, y, label, style_str, style_index, 
-                         senses=("min","max"), show_points=True):
+                         senses=("min","max"), show_points=True, number_of_rounds=-1):
         """
         Scatter all points + overlay the Pareto front.
         senses: ('min'|'max', 'min'|'max') for (x, y).
@@ -68,6 +68,7 @@ class Plotter:
 
         min = len(y) if len(x) > len(y) else len(x)
         
+        min = min if number_of_rounds == -1 else number_of_rounds
         x = x[:min]
         y = y[:min]
         
@@ -108,8 +109,8 @@ class Plotter:
         m = markers[style_index] if markers and len(markers) > style_index else None
 
         # scatter all points (faint)
-        #if show_points:
-        #    plt.scatter(x, y, s=15, color=c, alpha=0.2)
+        if show_points:
+            plt.scatter(x, y, s=1, color=c, alpha=0.2)
 
 
         plt.plot(xf[order], yf[order], color=c, linestyle=ls, linewidth=lw, marker=m, label=label)

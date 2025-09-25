@@ -675,6 +675,7 @@ class fedwork:
                 attr_y_axis_scale = "@y_axis_scale"
                 attr_style = "@style"
                 attr_senses = "@senses"
+                attr_x_count = "@x_count"
                 fig_caption = ""
 
                 if not attr_name in fig.keys():
@@ -711,6 +712,12 @@ class fedwork:
                 else:
                     style = fig[attr_style]
 
+                if not attr_x_count in fig.keys():
+                    x_count = -1
+                else:
+                    x_count = int(fig[attr_x_count])
+                    
+                
                 x_axis_scale = 1.0
                 if attr_x_axis_scale in fig.keys():
                     x_axis_scale = float(fig[attr_x_axis_scale])
@@ -778,7 +785,7 @@ class fedwork:
                             ylabel=f"{method}.{y_axis}"
                         
                         reference_point = (1.0, 1.0)
-                        self.plotter.plot_tradeoff_2d(x, y, ylabel, style, plot_index, ("min", "max"))
+                        self.plotter.plot_tradeoff_2d(x, y, ylabel, style, plot_index, ("min", "max"),show_points=False, number_of_rounds=x_count)
                         #self.plotter.plot_hypervolume2d(x, y, ylabel, reference_point, style, plot_index)
                         plot_index += 1
                 
