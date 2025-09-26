@@ -28,6 +28,7 @@ class FedLP(FederatedLearningClass):
         self.client_round_num = 0
         self.lr = 0.01
         self.p  = self.get_arg(float, "p", 1.0)
+        self.contributors_percent = float(self.get_arg(int, "contributors_percent", 100)) / 100.0
     #Will be called by Server
     def get_name(self):
         return "FedLP-Homo"
@@ -95,3 +96,8 @@ class FedLP(FederatedLearningClass):
     def ready_to_aggregate(self, num_of_received_model: int) -> bool:
         logger.log_normal(f"Number of trained models: {num_of_received_model}")
         return super().ready_to_aggregate(num_of_received_model)
+    
+    def select_clients_to_train(self, all_clients):
+        if self.contributors_percent != 1.0:
+            return self.select_random_clients(all_clients, self.contributors_percent)
+        return super().select_clients_to_train(all_clients)
