@@ -123,7 +123,14 @@ class FedALAQ(FederatedLearningClass):
         packet_to_send["p_k"] = p_k
         if self.gradient_sparsifier is not None:
             raw_model = self.gradient_sparsifier.sparsify(raw_model, global_model)
-        
+            
+            to_send = {}
+            for key in raw_model.keys():
+                if Common.is_trainable(raw_model, key):
+                    to_send[key] = raw_model[key]
+
+            packet_to_send["tensors"] = to_send
+            return packet_to_send
         
         if self.quantization is not None:
             quantized_model = {}

@@ -57,7 +57,7 @@ class Plotter:
         return np.asarray(a).reshape(-1)
 
     def plot_tradeoff_2d(self, x, y, label, style_str, style_index, 
-                         senses=("min","max"), show_points=True, number_of_rounds=-1):
+                         senses=("min","max"), extend=False, number_of_rounds=-1, extend_samples=False):
         """
         Scatter all points + overlay the Pareto front.
         senses: ('min'|'max', 'min'|'max') for (x, y).
@@ -66,8 +66,18 @@ class Plotter:
         x = self._to_numpy_1d(x)
         y = self._to_numpy_1d(y)
 
-        min = len(y) if len(x) > len(y) else len(x)
         
+        
+        
+        if extend_samples:
+            if len(x) > len(y):
+                n, m = len(x), len(y)
+                y = np.repeat(y, n // m)
+            else:
+                n, m = len(y), len(x)
+                x = np.repeat(x, n // m)
+            
+        min = len(y) if len(x) > len(y) else len(x)
         min = min if number_of_rounds == -1 else number_of_rounds
         x = x[:min]
         y = y[:min]
@@ -101,7 +111,17 @@ class Plotter:
 
         if "markers=" in style_str:
             markers = style_str.split("markers=")[1].split(";")[0].strip().split(",")
-
+        show_points_str = None
+        if "show_points=" in style_str:
+            show_points_str = style_str.split("show_points=")[1].split(";")[0].strip()
+        
+        show_points = False
+        if show_points_str is not None:
+            if show_points_str == "on":
+                show_points = True
+            elif show_points_str != "off":
+                logger.warninig("Invalid value for 'show_points' in the defined style.")
+    
         # Safe extraction with defaults
         c = colors[style_index] if colors and len(colors) > style_index else 'blue'
         ls = linestyles[style_index] if linestyles and len(linestyles) > style_index else '-'
@@ -298,11 +318,18 @@ class Plotter:
         linewidths = None
         markers = None
         colors_map = None
-        
-        
+        points_radius = None
+        points_alpha = None
+        show_points_str = None
         if "linewidths=" in style_str:
             linewidths = list(map(float, style_str.split("linewidths=")[1].split(";")[0].strip().split(",")))
     
+        if "points_radius=" in style_str:
+            points_radius = list(map(float, style_str.split("points_radius=")[1].split(";")[0].strip().split(",")))
+            
+        if "points_alpha=" in style_str:
+            points_alpha = list(map(float, style_str.split("points_alpha=")[1].split(";")[0].strip().split(",")))
+            
         if "colors_map=" in style_str:
             colors_map = style_str.split("colors_map=")[1].split(";")[0].strip()
             num_colors = len(linewidths)
@@ -328,11 +355,23 @@ class Plotter:
         if "markers=" in style_str:
             markers = style_str.split("markers=")[1].split(";")[0].strip().split(",")
         
+        if "show_points=" in style_str:
+            show_points_str = style_str.split("show_points=")[1].split(";")[0].strip()
+        
+        show_points = False
+        if show_points_str is not None:
+            if show_points_str == "on":
+                show_points = True
+            elif show_points_str != "off":
+                logger.warninig("Invalid value for 'show_points' in the defined style.")
+                
         c = None
         ls = None
         lw = None
         m = None
-
+        r = None
+        a = None
+        
         if colors is not None:
             if len(colors) > style_index:
                 c = colors[style_index]
@@ -349,7 +388,14 @@ class Plotter:
             if len(markers) > style_index:
                 m = markers[style_index]
                 
-
+        if points_radius is not None:
+            if len(points_radius) > style_index:
+                r = points_radius[style_index]
+        
+        if points_alpha is not None:
+            if len(points_alpha) > style_index:
+                a = points_alpha[style_index]
+                
         # Convert x and y element-wise to ensure they are NumPy arrays
         def convert_to_numpy(data):
             if isinstance(data, torch.Tensor):  # Handle tensor directly
@@ -364,7 +410,8 @@ class Plotter:
         x = convert_to_numpy(x)
         y = convert_to_numpy(y)
 
-
+        if show_points:
+            plt.scatter(x, y, s=r, color=c, alpha=a)
         plt.plot(x, y, alpha=0.9, label=label, color=c, linestyle=ls, linewidth=lw, marker=m)
         
     def plot_envelope(self, x, Y, label, style_str, style_index):

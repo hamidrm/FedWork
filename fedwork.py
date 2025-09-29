@@ -466,6 +466,7 @@ class fedwork:
                 method_info["arch_cfg_vars"] = arch_cfg_vars
 
                 probes["method_info"] = method_info
+                probes["global_model"] = server.getGlobalModel()
                 probes_bin[method_name] = pickle.dumps(probes)
                 with open(probes_data_path, "wb") as f:
                     f.write(probes_bin[method_name])
@@ -676,6 +677,9 @@ class fedwork:
                 attr_style = "@style"
                 attr_senses = "@senses"
                 attr_x_count = "@x_count"
+                attr_extend_samples = "@extend_samples"
+                extend_samples_allowed = "allowed"
+                
                 fig_caption = ""
 
                 if not attr_name in fig.keys():
@@ -716,7 +720,11 @@ class fedwork:
                     x_count = -1
                 else:
                     x_count = int(fig[attr_x_count])
-                    
+                
+                if not attr_extend_samples in fig.keys():
+                    extend_samples = False
+                elif fig[attr_extend_samples] == extend_samples_allowed:
+                    extend_samples = True
                 
                 x_axis_scale = 1.0
                 if attr_x_axis_scale in fig.keys():
@@ -785,7 +793,7 @@ class fedwork:
                             ylabel=f"{method}.{y_axis}"
                         
                         reference_point = (1.0, 1.0)
-                        self.plotter.plot_tradeoff_2d(x, y, ylabel, style, plot_index, ("min", "max"),show_points=False, number_of_rounds=x_count)
+                        self.plotter.plot_tradeoff_2d(x, y, ylabel, style, plot_index, ("min", "max"), number_of_rounds=x_count, extend_samples=extend_samples)
                         #self.plotter.plot_hypervolume2d(x, y, ylabel, reference_point, style, plot_index)
                         plot_index += 1
                 

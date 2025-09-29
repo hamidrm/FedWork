@@ -304,3 +304,6 @@ class Server:
         logger.log_info(f"[{self.fl_method.get_name()}]: The aggregation has been completed, and clients are now up to date.")
             
         return True
+    
+    def getGlobalModel(self):
+        return pickle.dumps(self.global_model.state_dict())
