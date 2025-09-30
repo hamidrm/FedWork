@@ -70,7 +70,10 @@ class FedALAQ(FederatedLearningClass):
     def aggregate(self, clients_models, global_model):
         
         clients_models_copy = copy.deepcopy(clients_models)
-
+        for i, client_model in enumerate(clients_models_copy):
+            for key in client_model[1].keys():
+                if Common.is_trainable(global_model, key):
+                    clients_models_copy[i][1][key] += global_model[key]
 
                     
         self.fla.aggregate(clients_models, global_model, self.datasets_weights, self.p_k_list)
@@ -80,10 +83,6 @@ class FedALAQ(FederatedLearningClass):
 
         if self.round_num() % self.fedmia_stride == 0:
             target_model_id = 0
-            for i, client_model in enumerate(clients_models_copy):
-                for key in client_model[1].keys():
-                    if Common.is_trainable(global_model, key):
-                        clients_models_copy[i][1][key] += global_model[key]
             
             res_total = PrivacyMiaUtils.FedMiaExec(self.fedmia_attack, global_model,
                                        clients_models_copy, target_model_id,
