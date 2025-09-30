@@ -66,6 +66,7 @@ class fedwork:
         non_iid_alpha   = self.get_var(vars, "alpha", float, sys.float_info.min)
         train_batch_size= self.get_var(vars, "train_batch_size", int, 128)
         test_batch_size = self.get_var(vars, "test_batch_size", int, 128)
+
         num_workers = self.get_var(vars, "num_workers", int, 0)
         save_graph      = self.get_var(vars, "save_graph", bool, True)
         enclose_info    = self.get_var(vars, "enclosed_info", bool, False)

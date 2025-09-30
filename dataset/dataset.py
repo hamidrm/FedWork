@@ -92,7 +92,6 @@ def _make_train_transforms_and_datasets(ds_type: str):
         raise ValueError(f"Dataset '{ds_type}' not recognized.")
     return train_dataset
 
-
 def _cpu_dl_generator(seed: int) -> torch.Generator:
     g = torch.Generator(device="cpu")
     g.manual_seed(seed)
@@ -184,7 +183,7 @@ def create_datasets(
     test_batch_size=64,
     use_dirichlet=False,
     num_workers=0,
-    save_graph=True,
+    save_graph=True,Sec
     add_info_to_figure=False,
     path=None,
     base_seed: int = 0,
@@ -304,6 +303,7 @@ def create_datasets(
         plt.tick_params(axis="x", labelsize=20)
         plt.tick_params(axis="y", labelsize=20)
         plt.xticks([i for i in range(len(train_datasets))], [f"{i}" for i in range(len(train_datasets))])
+
         full_path = os.path.join(dir_path, f"dataset_distribution_{time_str}_sbp.pdf")
         plt.savefig(full_path, format="pdf", bbox_inches="tight")
         plt.close()

@@ -18,3 +18,4 @@ class FedAvg(FederatedLearningClass):
 
     def select_clients_to_train(self, all_clients):
         return self.select_random_clients(all_clients, self.contributors_percent)
+

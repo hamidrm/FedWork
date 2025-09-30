@@ -29,7 +29,7 @@ class FedPAQ(FederatedLearningClass):
     def select_clients_to_train(self, all_clients):
         return self.select_random_clients(all_clients, self.contributors_percent)
 
-    def pack_client_model(self, raw_model, global_model):
+    def pack_client_model(self, raw_model, global_model, client_name):
         quantized_model = {}
         packet_to_send = {}
         scale = {}
