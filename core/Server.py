@@ -12,63 +12,94 @@ from utils.logger import *
 from utils.profiler import *
 
 class Server:
-    def __init__(self, ip_addr: IpAddr, fl_method: FederatedLearningClass, test_ds : torch.utils.data.DataLoader, model : nn.Module, loss : nn.Module, executer = "cpu"):
+    def __init__(self, ip_addr: IpAddr, fl_method: FederatedLearningClass, test_ds : torch.utils.data.DataLoader, model : nn.Module, loss : nn.Module, executer = "cpu", experimentMode = False):
         
         self.global_model = model
-        self.server_comm = ServerComm(ip_addr.get_ip(), ip_addr.get_port(), self.__server_evt_fn)
+        if not experimentMode:
+            self.server_comm = ServerComm(ip_addr.get_ip(), ip_addr.get_port(), self.__server_evt_fn)
+            self.received_models_lock = threading.Lock()
+            self.method_is_processing_lock = threading.Lock()
+            
+            profiler.add_var_monitor_changes("no_rcvd_total", self.server_comm, MEASURE_PROBE_CHANGES_TOTAL_RCVD_BYTES)
+            profiler.add_var_monitor_changes("no_sent_total", self.server_comm, MEASURE_PROBE_CHANGES_TOTAL_SENT_BYTES)
+            profiler.add_var_monitor_changes("no_rcvd_data", self.server_comm, MEASURE_PROBE_CHANGES_DATA_RCVD_BYTES)
+            profiler.add_var_monitor_changes("no_rcvd_data", self.server_comm, MEASURE_PROBE_CHANGES_DATA_SENT_BYTES)
+        
         self.criterion = loss().to(executer)
         self.executer = executer
         self.test_ds = test_ds
         self.received_models = []
-        self.received_models_lock = threading.Lock()
-        self.method_is_processing_lock = threading.Lock()
+        self.received_models_id = []
+        self.model_list = []
+        self.ServerTotalRecvBytesExp = 0
         self.fl_method = fl_method
         self.round_number = 0
+        self.experimentMode = experimentMode
+        self.clients = {}
         self.fl_method.server = self
-        fl_method.init_method()
+        fl_method.init_method(self)
         logger.log_debug(f"Server initilization done.")
+        
 
-        profiler.add_var_monitor_changes("no_rcvd_total", self.server_comm, MEASURE_PROBE_CHANGES_TOTAL_RCVD_BYTES)
-        profiler.add_var_monitor_changes("no_sent_total", self.server_comm, MEASURE_PROBE_CHANGES_TOTAL_SENT_BYTES)
-        profiler.add_var_monitor_changes("no_rcvd_data", self.server_comm, MEASURE_PROBE_CHANGES_DATA_RCVD_BYTES)
-        profiler.add_var_monitor_changes("no_rcvd_data", self.server_comm, MEASURE_PROBE_CHANGES_DATA_SENT_BYTES)
-
-    def start_round_ex(self, epochs, lr_mileston, gamma):
-        clients = self.server_comm.get_clients()
+    def setClientSetExp(self, clients):
+        self.clients = clients
+        
+    def start_round_ex(self, epochs, lr = None):
+        if not self.experimentMode:
+            clients = self.server_comm.get_clients()
+        else:
+            clients = self.clients
         clients_subset = self.fl_method.select_clients(clients)
         training_conf = {}
         logger.log_debug(f"Start new round (with dedicated configuration)")
         for client_name in clients_subset.keys():
             training_conf["epochs_num"] = epochs[client_name]
-            training_conf["milestone_list"] = lr_mileston[client_name]
-            training_conf["gamma"] = gamma[client_name]
-            self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
+            training_conf["lr"] = lr
+            if not self.experimentMode:
+                self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
+            else:
+                clients[client_name].StartTraining(training_conf)
+                if self.Aggregate():
+                    self.received_models.clear()
 
-    def start_round(self, epochs, lr_mileston: list = [], gamma = 0.00):
-        clients = self.server_comm.get_clients()
+    def start_round(self, epochs, lr = None):
+        if not self.experimentMode:
+            clients = self.server_comm.get_clients()
+        else:
+            clients = self.clients
         clients_subset = self.fl_method.select_clients_to_train(clients)
         training_conf = {}
         self.round_number += 1
         training_conf["epochs_num"] = epochs
-        training_conf["milestone_list"] = lr_mileston
-        training_conf["gamma"] = gamma
-        logger.log_debug(f"Start new round (epochs={epochs}, lr_mileston={lr_mileston}, gamma={gamma})")
+        training_conf["lr"] = lr
+        logger.log_debug(f"Start new round (epochs={epochs}, lr={lr})")
         for client_name in clients_subset.keys():
             logger.log_debug(f"Start training for '{client_name}'.")
-            self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
+            if not self.experimentMode:
+                self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_TRAINNING, 0, training_conf)
+            else:
+                clients[client_name].StartTraining(training_conf)
+                if self.Aggregate():
+                    self.received_models.clear()
+        
 
     def fetch_clients_pool(self):
-        return self.server_comm.clients
+        if not self.experimentMode:
+            return self.server_comm.get_clients()
+        else:
+            return self.clients
     
-    def start_periodic_mode(self, client_name, epochs, lr_mileston, gamma, interval):
+    def start_periodic_mode(self, client_name, epochs, lr = None):
+        if self.experimentMode:
+            return
         periodic_cfg = {}
         periodic_cfg["epochs_num"] = epochs
-        periodic_cfg["milestone_list"] = lr_mileston
-        periodic_cfg["gamma"] = gamma
-        periodic_cfg["interval"] = interval
+        periodic_cfg["lr"] = lr
         self.server_comm.send_command(client_name, COMM_HEADER_CMD_START_PERIODIC_MODE, 0, periodic_cfg)
 
     def stop_periodic_mode(self, client_name):
+        if self.experimentMode:
+            return
         self.server_comm.send_command(client_name, COMM_HEADER_CMD_STOP_PERIODIC_MODE, 0, None)
 
     def __server_evt_fn(self, evt, client, data):
@@ -82,7 +113,8 @@ class Server:
             logger.log_debug(f"The trained model received from '{client.name}'.")
 
             with self.received_models_lock:
-                self.received_models.append(data)
+                self.received_models.append((client.id, data))
+
             logger.log_info(f"[{self.fl_method.get_name()}]: Trained model received from '{client.name}'.")
             with self.received_models_lock:
                 if self.fl_method.ready_to_aggregate(len(self.received_models)):
@@ -111,14 +143,19 @@ class Server:
 
     def update_clients(self):
         global_model_pack = self.fl_method.pack_server_model(self.global_model.state_dict())
-        for client in self.fl_method.select_clients_to_update(self.server_comm.clients):
-            self.server_comm.send_data_pkg(client, global_model_pack)
+        if self.experimentMode:
+            for client in self.fl_method.select_clients_to_update(self.clients):
+                self.clients[client].set_model(global_model_pack)
+        else:
+            for client in self.fl_method.select_clients_to_update(self.server_comm.clients):
+                self.server_comm.send_data_pkg(client, global_model_pack)
             
     def __aggregation_thread(self, packed_models_list):
-        models_list = [self.fl_method.unpack_client_model(packed_model) for packed_model in packed_models_list]
+        models_list = [(packed_model[0],self.fl_method.unpack_client_model(packed_model[1])) for packed_model in packed_models_list]
 
         profiler.start_measuring(MEASURE_PROBE_AGGR_TIME)
         self.global_model_dict = self.global_model.state_dict()
+
         self.fl_method.aggregate(models_list, self.global_model_dict)
         self.global_model.load_state_dict(self.global_model_dict)
         profiler.stop_measuring(MEASURE_PROBE_AGGR_TIME, self.round_number)
@@ -139,15 +176,39 @@ class Server:
             logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy} , Loss: {eval_loss}")
 
     def wait_for_method(self):
+        if self.experimentMode:
+            return
         self.method_is_processing_lock.acquire()
     
     def start_training(self):
         logger.log_debug(f"Broadcasting start training command...")
-        self.fl_method.start_training()
-        if not self.method_is_processing_lock.locked():
-            self.method_is_processing_lock.acquire()
+
+        time.sleep(0.5)
+        # Share Global Model among clients before start round
+        self.update_clients()
+
+        if not self.experimentMode:
+            # Start training procedure
+            self.fl_method.start_training()
+        else:
+            while(True):
+                eval_loss_eval_accuracy = self.fl_method.start_training()
+                if eval_loss_eval_accuracy is None:
+                    #Method's procedure has been finished
+                    logger.log_info(f"[{self.fl_method.get_name()}]: Method's procedure has been finished!")
+                    break
+                else:
+                    eval_loss, eval_accuracy = eval_loss_eval_accuracy
+                    logger.log_info(f"[{self.fl_method.get_name()}]: Evaluation -> Accuracy: {eval_accuracy} , Loss: {eval_loss} at round {self.round_number}")
+                
+        if not self.experimentMode:
+            if not self.method_is_processing_lock.locked():
+                self.method_is_processing_lock.acquire()
 
     def release_all(self):
+        if self.experimentMode:
+            del self.clients
+            return
         for client in self.server_comm.clients:
             self.server_comm.send_command(client, COMM_HEADER_CMD_TURNOFF, 0)
 
@@ -199,3 +260,50 @@ class Server:
         profiler.save_variable(MEASURE_PROBE_EVAL_LOSS, eval_loss, self.round_number)
         logger.log_debug(f"Global model evaluation is done...")
         return eval_loss, eval_accuracy
+    
+    
+    def EpochDone(self, name, id, epoch_info):
+        logger.log_debug(f"The notification received from '{name}'.")
+        profiler.save_variable(MEASURE_PROBE_CLIENT_ACC+name, epoch_info["accuracy"], self.round_number)
+        profiler.save_variable(MEASURE_PROBE_CLIENT_LOSS+name, epoch_info["loss"], self.round_number)
+        logger.log_debug(f'[{self.fl_method.get_name()}]: Client {name}, Accuracy is {epoch_info["accuracy"]}, Loss: {epoch_info["loss"]}.')
+
+
+    def SetOptimizedModel(self, name, id, packed_data):
+        
+        self.ServerTotalRecvBytesExp += len(pickle.dumps(packed_data))
+
+        logger.log_debug(f"The trained model received from '{name}'.")
+
+        self.received_models.append((id, packed_data))
+
+        logger.log_info(f"[{self.fl_method.get_name()}]: Trained model received from '{name}'.")
+
+            
+    def TrainingDone(self, name, id):
+        logger.log_info(f'[{self.fl_method.get_name()}]: Client {name}, The round is done.')
+        
+    def Aggregate(self):
+        if self.fl_method.ready_to_aggregate(len(self.received_models)):
+            logger.log_debug(f"Start to aggregate.")
+        else:
+            return False
+        profiler.save_variable(MEASURE_PROBE_TOTAL_RCVD_BYTES, self.ServerTotalRecvBytesExp, self.round_number)
+
+        models_list = [(packed_model[0],self.fl_method.unpack_client_model(packed_model[1])) for packed_model in self.received_models]
+
+        profiler.start_measuring(MEASURE_PROBE_AGGR_TIME)
+        self.global_model_dict = self.global_model.state_dict()
+
+        self.fl_method.aggregate(models_list, self.global_model_dict)
+        self.global_model.load_state_dict(self.global_model_dict, strict=False)
+        profiler.stop_measuring(MEASURE_PROBE_AGGR_TIME, self.round_number)
+
+        self.update_clients()
+
+        logger.log_info(f"[{self.fl_method.get_name()}]: The aggregation has been completed, and clients are now up to date.")
+            
+        return True
+    
+    def getGlobalModel(self):
+        return pickle.dumps(self.global_model.state_dict())

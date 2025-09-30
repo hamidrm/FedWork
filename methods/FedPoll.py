@@ -7,17 +7,17 @@ from utils.common import Common
 
 class FedPoll(FederatedLearningClass):
 
-    def __init__(self, args = ()):
-        super().__init__()
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
-        
+    def __init__(self, method_name, fl_context, method_args):
+        super().__init__(method_name, fl_context, method_args)
+
         self.client_side_r_tensors = []
         
         self.first_aggregation = True
-        self.no_r_mat = int(Common.get_param_in_args(extra_args, "no_r", 8))
-        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 80))
-        self.epsilon = float(Common.get_param_in_args(extra_args, "epsilon", 1e-1))
-        self.num_of_nodes_contributor = 0
+
+        self.no_r_mat = self.get_arg(int, "no_r", 8)
+        self.contributors_percent = self.get_arg(int, "contributors_percent", 80)
+        self.epsilon = self.get_arg(int, "epsilon", 1e-1)
+
         self.current_seeds = [0] * self.no_r_mat
         self.clients_first_aggregation = True
         self.current_radius = {}
@@ -30,20 +30,15 @@ class FedPoll(FederatedLearningClass):
     def get_name(self):
         return "FedPoll"
     
-    def init_method(self):
-        pass
-
-
 # # # # # # # # # # #
 #    Server Side    # 
 # # # # # # # # # # # 
 
     def avg_aggregate(self, clients_models, global_model):
-        global_dict = global_model
         fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
-        for key in global_dict.keys():
-            torch_list_weights = torch.stack([clients_models[i][key].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
-            global_dict[key] = torch_list_weights.sum(0)
+        for key in global_model.keys():
+            torch_list_weights = torch.stack([clients_models[i][1][key].float() * fedavg_fraction[clients_models[i][0]] for i in range(len(clients_models))],0)
+            global_model[key] = torch_list_weights.sum(0)
     
     def aggregate(self, clients_models, global_model):
 
@@ -65,13 +60,13 @@ class FedPoll(FederatedLearningClass):
             
         for key in global_model.keys():
             
-            if global_model[key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key):
+            if Common.is_trainable(global_model, key):
                 V_mat_max = [torch.zeros_like(global_model[key], dtype=torch.long, device=self.platform) for _ in range(self.no_r_mat)]
                 V_mat_min = [torch.zeros_like(global_model[key], dtype=torch.long, device=self.platform) for _ in range(self.no_r_mat)]
                 
 
                 for model in clients_models:
-                    models_bins=model["bin"]
+                    models_bins = model[1]["bin"]
                     shift_cnt = 0
 
                     for R_mat_i in range(self.no_r_mat):
@@ -125,11 +120,9 @@ class FedPoll(FederatedLearningClass):
         self.current_loss = eval_loss
 
         if self.server.round_number != self.num_of_rounds:
-            #self.server.update_clients()
-            self.server.start_round(self.clients_epochs, [100, 200], 0.0001)
+            self.server.start_round(self.clients_epochs)
             return (eval_loss, eval_accuracy)
         else:
-            logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
             return None
 
     def select_clients_to_train(self, all_clients):
@@ -138,22 +131,6 @@ class FedPoll(FederatedLearningClass):
             return all_clients
         self.num_of_nodes_contributor = int((float(self.contributors_percent) / 100.0) * len(all_clients))
         return dict(random.sample(list(all_clients.items()), self.num_of_nodes_contributor))
-
-    def select_clients_to_update(self, all_clients):
-        return all_clients
-
-    def ready_to_aggregate(self, num_of_received_model: int) -> bool:
-        logger.log_normal(f"Number of trained models: {num_of_received_model}")
-        if num_of_received_model == self.num_of_nodes_contributor:
-            return True
-        else:
-            return False
-
-
-    def unpack_client_model(self, packed_model):
-        # No additional process is needed in this stage
-        # We'll work on packets in aggregation step
-        return packed_model
     
     def pack_server_model(self, raw_model):
         packet_to_send = {}

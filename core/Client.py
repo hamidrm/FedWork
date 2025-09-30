@@ -7,10 +7,11 @@ from utils.consts import *
 from core.FederatedLearningClass import *
 from core.ClientComm import *
 from utils.logger import *
+from utils.security.DataManipulation import *
 import copy
 
 class Client:
-    def __init__(self, name, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, method: FederatedLearningClass,executer = "cpu"):
+    def __init__(self, name, id, ip_addr: IpAddr, hyperparameters: TrainingHyperParameters, train_ds: torch.utils.data.DataLoader, model: nn.Module, optimizer: torch.optim, loss: nn.Module, method: FederatedLearningClass,executer = "cpu"):
         
         self.client_model = model
         self.global_model = copy.deepcopy(model)
@@ -25,6 +26,7 @@ class Client:
         self.executer = executer
         self.dataset = train_ds
         self.name = name
+        self.id = id
         self.method = method
         self.total_epochs = 0
         self.training_count = 0
@@ -36,7 +38,7 @@ class Client:
         self.periodic_training_gamma = 0
         self.lr = hyperparameters.learning_rate
         self.is_training_lock = threading.Lock()
-        self.client_comm = ClientComm(name, ip_addr.get_ip(), ip_addr.get_port(), self.__client_evt_cb)
+        self.client_comm = ClientComm(name, id, ip_addr.get_ip(), ip_addr.get_port(), self.__client_evt_cb)
         logger.log_debug(f"[{name}]: Initialization done.")
 
     def __client_evt_cb(self, evt, data):
@@ -46,7 +48,7 @@ class Client:
                 logger.log_warning(f'[{self.name}]: Invalid request! Periodic training is enabled.')
             else:
                 logger.log_info(f'[{self.name}]: Training is starting...')
-                self.StartTraining(data["epochs_num"], data["milestone_list"], data["gamma"])
+                self.StartTraining(data["epochs_num"], data["lr"])
                 logger.log_info(f'[{self.name}]: Training done (Epochs: {data["epochs_num"]}).')
         elif evt == COMM_EVT_EPOCHS_TOTAL_COUNT_REQ:
             self.client_comm.send_notification_to_server(COMM_EVT_EPOCHS_TOTAL_COUNT_REQ, self.total_epochs)
@@ -54,7 +56,7 @@ class Client:
             self.client_comm.send_notification_to_server(COMM_EVT_TRAINING_TOTAL_COUNT_REQ, self.training_count)
         elif evt == COMM_EVT_START_PERIODIC_TRAINING:
             logger.log_info(f'[{self.name}]: Periodic training is starting...')
-            self.start_periodic_training(data["epochs_num"], data["milestone_list"], data["gamma"], data["interval"])
+            self.start_periodic_training(data["epochs_num"], data["lr"])
         elif evt == COMM_EVT_STOP_PERIODIC_TRAINING:
             logger.log_info(f'[{self.name}]: Periodic training is stoping...')
             self.stop_periodic_training()
@@ -71,13 +73,13 @@ class Client:
             logger.log_warning(f"Undefined event received (evt={evt})!")
 
     def set_model(self, model):
-        self.client_model.load_state_dict(model)
-        self.global_model.load_state_dict(model)
+        self.client_model.load_state_dict(model, strict=False)
+        self.global_model.load_state_dict(model, strict=False)
 
     def get_model_dict(self):
         return self.client_model.state_dict()
 
-    def start_periodic_training(self, epochs, lr_mileston: list, gamma = 0.01, interval = 10):
+    def start_periodic_training(self, epochs, lr, lr_mileston: list, gamma = 0.01, interval = 10):
         if self.is_periodic_training_enabled or ((self.periodic_training_thread is not None) and (self.periodic_training_thread.is_alive())):
             logger.log_warning(f'[{self.name}]: Invalid request! Periodic training has been strated before.')
             return
@@ -104,17 +106,15 @@ class Client:
             logger.log_debug(f'[{self.name}]: Periodic training tick!')
 
 
-    def StartTraining(self, epochs_num, lr_scheduler_milestone_list : list = None, gamma : float = 0.1):
+    def StartTraining(self, epochs_num, lr):
         self.is_training_lock.acquire()
-        if (lr_scheduler_milestone_list is not None) and (len(lr_scheduler_milestone_list) != 0):
-            scheduler = torch.optim.lr_scheduler.MultiStepLR(self.client_optimizer,
-                                                     milestones=lr_scheduler_milestone_list,
-                                                     gamma=gamma,
-                                                     last_epoch=-1)
+
         self.client_model.to(self.executer)
         self.training_count += 1
 
-
+        if lr != None:
+            for param_group in self.client_optimizer.param_groups:
+                param_group['lr'] = lr
 
         for epoch in range(epochs_num):
             self.total_epochs += 1
@@ -131,9 +131,11 @@ class Client:
             client_train_dict["lr"] = self.lr
             client_train_dict["global_model_state"] = self.global_model.state_dict()
             for inputs, labels in self.dataset:
-
+                
                 inputs = inputs.to(self.executer)
                 labels = labels.to(self.executer)
+
+                inputs, labels = self.method.client_training_get_data(inputs, labels)
 
                 client_train_dict["inputs"] = inputs
                 client_train_dict["labels"] = labels
@@ -147,14 +149,16 @@ class Client:
                 else:
                     self.client_optimizer.zero_grad()
                     outputs = self.client_model(inputs)
-                    _, preds = torch.max(outputs, 1)
-                    loss = self.criterion(outputs, labels)
+
+                    loss = self.method.client_training_criterion(self.criterion, outputs, labels)
                     loss.backward()
                     self.client_optimizer.step()
 
                     # statistics
+                    running_corrects += self.method.client_training_correctness(outputs, labels)
                     running_loss += loss.item() * inputs.size(0)
-                    running_corrects += torch.sum(preds == labels.data)
+                    
+
 
             model = self.method.train_after_optimization(client_train_dict, epoch)
             
@@ -170,12 +174,9 @@ class Client:
 
             logger.log_debug(f'[{self.name}]: Epoch Done!')
             self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_EPOCH_DONE, 0, epoch_info)
-
-            if lr_scheduler_milestone_list is not None:
-                scheduler.step()
         
         if self.method != None:
-            packed_data = self.method.pack_client_model(self.client_model.state_dict(), global_model = self.global_model.state_dict(), client_name = self.name)
+            packed_data = self.method.pack_client_model(self.client_model.state_dict(), global_model = self.global_model.state_dict(), id = self.id)
             self.client_comm.send_data_to_server(packed_data)
         self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_TRAINNING_DONE, 0)
         self.is_training_lock.release()

@@ -1,52 +1,78 @@
 from abc import ABC, abstractmethod
+import random
+import torch
+from typing import Type, TypeVar
+from utils.common import Common
+
+
+T = TypeVar("T")
 
 class FederatedLearningClass(ABC):
-    learning_rate = 0.0001
-    momentum = 0.9
-    weight_decay = 1e-7
 
-    def set_server(self, server):
-        self.server = server
-        
+    def __init__(self, method_name, fl_context, method_args):
+        self.method_name = method_name
+        self.method_dict = fl_context["methods_list"][method_name]
+        self.clients_epochs = self.method_dict["num_of_epochs"]
+        self.num_of_rounds = fl_context["num_of_rounds"]
+        self.datasets_weights = fl_context["dataset_weights"]
+        self.platform = self.method_dict["platform"]
+        self.extra_args = method_args
+        self.fl_context = fl_context
+        self.num_of_contributor_nodes = 0
+
+    def get_arg(self, value_type: Type[T], name: str, default_value: T) -> T:
+        return value_type(Common.get_param_in_args(self.extra_args, name, default_value))
+
+    def select_random_clients(self, all_clients : dict, percent):
+        self.num_of_contributor_nodes = int(percent * len(all_clients))
+        return dict(random.sample(list(all_clients.items()), self.num_of_contributor_nodes)) 
+    
     @abstractmethod
     def get_name(self):
         pass
 
-    @abstractmethod
-    def init_method(self):
-        pass
+    def init_method(self, server = None):
+        # Is this called by the Server-Side?
+        if server != None:
+            self.server = server
+    @torch.no_grad()
+    def aggregate(self, clients_models, global_model):
+        
+        for key in global_model.keys():
+            if Common.is_trainable(global_model, key):
+                torch_list_weights = torch.stack([clients_models[i][1][key].float() * self.datasets_weights[clients_models[i][0]] for i in range(len(clients_models))],0)
+                total_weight = sum([self.datasets_weights[clients_models[i][0]] for i in range(len(clients_models))])
+                global_model[key] = torch_list_weights.sum(0) / total_weight
 
-    @abstractmethod
-    def aggregate(self, clients_model, global_model):
-        pass
+    def round_num(self):
+        return self.server.round_number
 
-    @abstractmethod
     def select_clients_to_train(self, all_clients):
-        pass
+        self.num_of_contributor_nodes = len(all_clients)
+        return all_clients
     
-    @abstractmethod
     def select_clients_to_update(self, all_clients):
-        pass
+        return all_clients
 
-    @abstractmethod
     def start_training(self):
-        pass
-    
-    @abstractmethod
-    def pack_client_model(self, raw_model, global_model=None, client_name=""):
-        pass
 
-    @abstractmethod
+        if self.server.round_number != self.num_of_rounds:
+            self.server.start_round(self.clients_epochs)
+            return self.server.evaluate_model()
+        else:
+            return None
+          
+    def pack_client_model(self, raw_model, global_model, id):
+        return raw_model
+
     def unpack_client_model(self, packed_model):
-        pass
-
-    @abstractmethod
+        return packed_model
+    
     def pack_server_model(self, raw_model):
-        pass
+        return raw_model
 
-    @abstractmethod
     def unpack_server_model(self, packed_model):
-        pass
+        return packed_model
 
     def train(self, client_train_dict : dict):
         return None
@@ -54,11 +80,18 @@ class FederatedLearningClass(ABC):
     def train_after_optimization(self, client_train_dict : dict, epoch_num):
         return None
     
-    def set_hyperparameters(self, learning_rate : float, momentum : float, weight_decay : float):
-        self.learning_rate = learning_rate
-        self.momentum = momentum
-        self.weight_decay = weight_decay
+    def client_training_get_data(self, inputs, labels):
+        return inputs, labels
 
-    @abstractmethod
+    def client_training_correctness(self, outputs, labels):
+        _, preds = torch.max(outputs, 1)
+        return torch.sum(preds == labels.data)
+    
+    def client_training_criterion(self, criterion_fn, outputs, labels):
+        return criterion_fn(outputs, labels)
+
     def ready_to_aggregate(self, num_of_received_model: int) -> bool:
-        pass
+        if num_of_received_model == self.num_of_contributor_nodes:
+            return True
+        else:
+            return False

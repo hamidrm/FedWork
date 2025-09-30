@@ -10,45 +10,40 @@ from utils.common import Common
 
 class FedPollN(FederatedLearningClass):
 
-    def __init__(self, args = ()):
-        super().__init__()
+    def __init__(self, method_name, fl_context, method_args):
+        super().__init__(method_name, fl_context, method_args)
 
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
-        
         self.client_side_r_tensors = []
-        self.num_of_nodes_contributor = 0
+        
         self.first_aggregation = True
-        bits = int(Common.get_param_in_args(extra_args, "bits", 8))
-        self.no_r_mat = 2 ** bits
-        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 80))
-        self.current_seeds = [0] * self.no_r_mat
+
+        self.bits = self.get_arg(int, "bits", 8)
+        self.contributors_percent = self.get_arg(int, "contributors_percent", 80)
+        self.epsilon = self.get_arg(int, "epsilon", 1e-1)
+
+        self.current_seeds = [0] * 2 ** self.bits
         self.clients_first_aggregation = True
         self.current_radius = {}
         self.loss0 = -1
         self.current_loss = 0
-        self.epsilon = float(Common.get_param_in_args(extra_args, "epsilon", 1e-1))
 
         logger.log_normal(f"===================================================")
-        logger.log_normal(f"bits: {bits}, contributors_percent: {self.contributors_percent}, epsilon: {self.epsilon}")
+        logger.log_normal(f"bits: {self.bits}, contributors_percent: {self.contributors_percent}, epsilon: {self.epsilon}")
         logger.log_normal(f"===================================================")
 
     def get_name(self):
         return "FedPollN"
     
-    def init_method(self):
-        pass
-
 
 # # # # # # # # # # #
 #    Server Side    # 
 # # # # # # # # # # # 
 
     def avg_aggregate(self, clients_models, global_model):
-        global_dict = global_model
         fedavg_fraction = [self.datasets_weights[i] for i in range(len(self.datasets_weights))]
-        for key in global_dict.keys():
-            torch_list_weights = torch.stack([clients_models[i][key].float() * fedavg_fraction[i] for i in range(len(clients_models))],0)
-            global_dict[key] = torch_list_weights.sum(0)
+        for key in global_model.keys():
+            torch_list_weights = torch.stack([clients_models[i][1][key].float() * fedavg_fraction[clients_models[i][0]] for i in range(len(clients_models))],0)
+            global_model[key] = torch_list_weights.sum(0)
         
     def aggregate(self, clients_models, global_model):
 
@@ -74,9 +69,9 @@ class FedPollN(FederatedLearningClass):
         for key in global_model.keys():
             clients_models_per_key = [torch.zeros_like(global_model[key], device=self.platform) for _ in range(len(clients_models))]
             #clients_selected_model = torch.zeros_like(global_model[key])
-            if clients_models[0][key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key):
+            if clients_models[0][1][key].dtype != torch.long and ('running_var' not in key) and ('running_mean' not in key):
                 for client_index in range(len(clients_models)):
-                    clients_selected_model = clients_models[client_index][key]
+                    clients_selected_model = clients_models[client_index][1][key]
                     
                     for idx in range(len(r_tensors)):
                         mask = (clients_selected_model == idx)
@@ -90,28 +85,10 @@ class FedPollN(FederatedLearningClass):
 
                 self.current_radius[key] = diff.item() + self.epsilon
             else:
-                global_model[key] = clients_models[0][key]
+                global_model[key] = clients_models[0][1][key]
 
 
 
-
-
-
-    def start_training(self):
-        logger.log_normal(f"===================================================")
-        eval_loss, eval_accuracy = self.server.evaluate_model()
-        logger.log_normal(f"Round {self.server.round_number} is starting...")
-        logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
-        if self.first_aggregation == False and self.loss0 == -1:
-            self.loss0 = eval_loss
-        self.current_loss = eval_loss
-        if self.server.round_number != self.num_of_rounds:
-            #self.server.update_clients()
-            self.server.start_round(self.clients_epochs, [100, 200], 0.0001)
-            return (eval_loss, eval_accuracy)
-        else:
-            logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
-            return None
 
     def select_clients_to_train(self, all_clients):
         if self.first_aggregation:
@@ -120,22 +97,6 @@ class FedPollN(FederatedLearningClass):
         self.num_of_nodes_contributor = int((float(self.contributors_percent) / 100.0) * len(all_clients))
         return dict(random.sample(list(all_clients.items()), self.num_of_nodes_contributor))
 
-    def select_clients_to_update(self, all_clients):
-        return all_clients
-
-    def ready_to_aggregate(self, num_of_received_model: int) -> bool:
-        logger.log_normal(f"Number of trained models: {num_of_received_model}")
-        if num_of_received_model == self.num_of_nodes_contributor:
-            return True
-        else:
-            return False
-
-
-    def unpack_client_model(self, packed_model):
-        # No additional process is needed in this stage
-        # We'll work on packets in aggregation step
-        return packed_model
-    
     def pack_server_model(self, raw_model):
         packet_to_send = {}
         packet_to_send["global_model"] = raw_model

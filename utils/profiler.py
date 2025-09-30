@@ -66,6 +66,21 @@ class profiler:
         output_dict["var_values"] = profiler().dump_variables_value_list()
         return output_dict
 
+    @staticmethod
+    def fill_probes(time_profiles, var_changes, var_values):
+        for name in time_profiles:
+            profiler().profiles_list[name] = []
+            for e in time_profiles[name]:
+                profiler().profiles_list[name].append(e)
+        for name in var_changes:
+            profiler().monitored_vars[name] = []
+            for e in var_changes[name]:
+                profiler().monitored_vars[name].append(e)
+        for name in var_values:
+            profiler().vars_val_list[name] = []
+            for e in var_values[name]:
+                profiler().vars_val_list[name].append(e)
+    
     def is_probe_available(self, probe_name):
         return ((probe_name in self.vars_val_list.keys()) or (probe_name in self.profiles_start.keys()))
 

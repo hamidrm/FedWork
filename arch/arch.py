@@ -13,6 +13,13 @@ class BaseArch(Enum):
     ResNet34 = "ResNet34"
     VGG16 = "VGG16"
     VGG7 = "VGG7"
+    AlexNet = "AlexNet"
+    AlexNetMini = "AlexNetMini"
+    ResNet50 = "ResNet50"
+    MobileNetV2 = "MobileNetV2"
+    ShuffleNetV2 = "ShuffleNetV2"
+    AllCNN = "AllCNN"
+    CNNSimpleLite = "CNNSimpleLite"
 
 class ActivationFunction(Enum):
     ReLUFunction = "relu"
@@ -28,6 +35,7 @@ class ActivationFunction(Enum):
     SoftmaxFunction = "softmax"
     Softmax2dFunction = "softmax2d"
     LogSoftmaxFunction = "logsoftmax"
+    
 
 class FWArch:
     def __init__(self, base_arch: BaseArch):
@@ -53,7 +61,14 @@ class FWArch:
                 p_type = name_type[1]
                 if p_type != "":
                     self.variables_type[p_name] = p_type
-            self.variables_value[p_name] = "undef"
+
+            if(len(name_type) == 3):
+                p_def_val = name_type[2]
+                if p_def_val != "":
+                    self.variables_value[p_name] = p_def_val
+                    self.SetParameter(p_name, p_def_val)
+            else:
+                self.variables_value[p_name] = "undef"
         
     
     def SetParameter(self, parameter_name, parameter_value):
@@ -63,6 +78,9 @@ class FWArch:
                 self.variables_value[parameter_name] = parameter_value
             elif self.variables_type[parameter_name] == "integer":
                 parameter_value = int(parameter_value)
+                self.variables_value[parameter_name] = parameter_value
+            elif self.variables_type[parameter_name] == "float":
+                parameter_value = float(parameter_value)
                 self.variables_value[parameter_name] = parameter_value
             elif self.variables_type[parameter_name] == "act_fn":
                 if not any(parameter_value.value == item.value for item in ActivationFunction):
@@ -110,6 +128,11 @@ class FWArch:
             self.arch_class = globals()[self.base_arch.value]
         
         return self.error_msg
+    
+
+    def get_class(self):
+        return self.arch_class
+    
     
     def CreateModel(self):
         if hasattr(self, "arch_class"):

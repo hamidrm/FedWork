@@ -6,18 +6,18 @@ from utils.profiler import *
 from utils.common import Common
 
 class FedYogi(FederatedLearningClass):
-    def __init__(self, args=()):
-        super().__init__()
-        self.clients_epochs, self.num_of_rounds, self.datasets_weights, self.platform, extra_args = args
-        self.contributors_percent = int(Common.get_param_in_args(extra_args, "contributors_percent", 100))
-        self.beta1 = float(Common.get_param_in_args(extra_args, "beta1", 0.9))
-        self.beta2 = float(Common.get_param_in_args(extra_args, "beta2", 0.99))
-        self.epsilon = float(Common.get_param_in_args(extra_args, "epsilon", 1e-3))
-        self.eta = float(Common.get_param_in_args(extra_args, "eta", 1e-2))
+    def __init__(self, method_name, fl_context, method_args):
+        super().__init__(method_name, fl_context, method_args)
+        
+        self.contributors_percent = self.get_arg(int, "contributors_percent", 80)
+        self.beta1 = self.get_arg(float, "beta1", 0.9)
+        self.beta2 = self.get_arg(float, "beta2", 0.99)
+        self.epsilon = self.get_arg(float, "epsilon", 1e-3)
+        self.eta = self.get_arg(float, "eta", 1e-2)
+
         self.m = None  # First moment
         self.v = None  # Second moment
-        self.num_of_nodes_contributor = 0
-        self.round_num = 0
+
 
     def initialize_moments(self, org_dict):
         first_moment = {}
@@ -38,7 +38,7 @@ class FedYogi(FederatedLearningClass):
         if self.m is None or self.v is None:
             self.m, self.v = self.initialize_moments(global_model)
             for key in global_model.keys():
-                torch_list_weights = torch.stack([(clients_models[i][key].float() + global_model[key]) for i in range(len(clients_models))],0)
+                torch_list_weights = torch.stack([(clients_models[i][1][key].float() + global_model[key]) for i in range(len(clients_models))],0)
                 global_model[key] = torch_list_weights.sum(0) / self.num_of_nodes_contributor 
             return
         
@@ -48,8 +48,8 @@ class FedYogi(FederatedLearningClass):
         # Accumulate gradients from all client models
         for model in clients_models:
             for key in global_model.keys():
-                if Common.is_trainable(model, key):
-                    delta_global_model[key] += model[key] / self.num_of_nodes_contributor
+                if Common.is_trainable(model[1], key):
+                    delta_global_model[key] += model[1][key] / self.num_of_nodes_contributor
 
         # Update moments and the global model parameters
         for key in global_model.keys():
@@ -69,29 +69,10 @@ class FedYogi(FederatedLearningClass):
                 global_model[key] += self.eta * self.m[key] / adjusted_v
             else:
                 # Directly use the first client's parameters for non-trainable parameters
-                global_model[key] = clients_models[0][key]
-
-        # Increment round number for the next aggregation
-        self.round_num += 1
-
-    def start_training(self):
-        logger.log_normal(f"===================================================")
-        eval_loss, eval_accuracy = self.server.evaluate_model()
-        logger.log_normal(f"Round {self.server.round_number} is starting...")
-        logger.log_normal(f"Current situation:\n\tAccuracy: {eval_accuracy}, Loss: {eval_loss}")
-        if self.server.round_number != self.num_of_rounds:
-            self.server.start_round(self.clients_epochs, [100, 200], 0.0001)
-            return (eval_loss, eval_accuracy)
-        else:
-            logger.log_normal(f"Training done! last global model accuracy is: {eval_accuracy}")
-            return None
+                global_model[key] = clients_models[0][1][key]
 
     def select_clients_to_train(self, all_clients):
-        self.num_of_nodes_contributor = int((float(self.contributors_percent) / 100.0) * len(all_clients))
-        return dict(random.sample(list(all_clients.items()), self.num_of_nodes_contributor))
-
-    def select_clients_to_update(self, all_clients):
-        return all_clients
+        return self.select_random_clients(all_clients, self.contributors_percent)
 
     def pack_client_model(self, raw_model, global_model, client_name):
         for key in raw_model.keys():
@@ -99,19 +80,3 @@ class FedYogi(FederatedLearningClass):
                 raw_model[key] = raw_model[key] - global_model[key]
 
         return raw_model
-
-    def unpack_client_model(self, packed_model):
-        return packed_model
-    
-    def pack_server_model(self, raw_model):
-        return raw_model
-
-    def unpack_server_model(self, packed_model):
-        return packed_model
-    
-    def ready_to_aggregate(self, num_of_received_model: int) -> bool:
-        logger.log_normal(f"Number of trained models: {num_of_received_model}")
-        if num_of_received_model == self.num_of_nodes_contributor:
-            return True
-        else:
-            return False
