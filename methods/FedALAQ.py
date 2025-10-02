@@ -60,8 +60,10 @@ class FedALAQ(FederatedLearningClass):
         logger.log_normal(f"|{info2.center(53)}|")
         logger.log_normal(f"|{info3.center(53)}|")
         logger.log_normal(separator)
-        
-        dataset_loader_validation, dataset_loader_train = PrivacyMiaUtils.get_data_loaders(self.fl_context["dataset_train_list"], self.fl_context["seed"])
+        if self.fedmia_stride > self.num_of_rounds:
+            dataset_loader_validation, dataset_loader_train = PrivacyMiaUtils.get_data_loaders(self.fl_context["dataset_train_list"], True, self.fl_context["seed"])
+        else:
+            dataset_loader_validation, dataset_loader_train = PrivacyMiaUtils.get_data_loaders(self.fl_context["dataset_path"], False, self.fl_context["seed"])
         self.fedmia_attack = FedMIA(dataset_loader_train, dataset_loader_validation, torch.optim.SGD, nn.CrossEntropyLoss)
         
         super().init_method(server)

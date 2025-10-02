@@ -10,12 +10,6 @@
 	</dataset>
 
 	<localclients learning_rate="0.01" optimizer="SGD" platform="cuda:0">10</localclients>
-	<method name="FedALAQ_0_9_100" type="FedALAQ" platform="cuda:0">
-		<arch type="CNNSimpleLite">
-		</arch>
-		<var name="epochs_num">1</var>
-		<var name="args">lcr=1.0,alpha=0,fedmia_stride=10</var>
-	</method>
 	<method name="FedALAQ_0_1_100" type="FedALAQ" platform="cuda:0">
 		<arch type="CNNSimpleLite">
 		</arch>
@@ -40,7 +34,12 @@
 		<var name="epochs_num">1</var>
 		<var name="args">lcr=0.7,alpha=100,randomized_quantization_levels=256,fedmia_stride=10</var>
 	</method>
-
+	<method name="FedALAQ_0_9_100" type="FedALAQ" platform="cuda:0">
+		<arch type="CNNSimpleLite">
+		</arch>
+		<var name="epochs_num">1</var>
+		<var name="args">lcr=0.9,alpha=100,randomized_quantization_levels=256,fedmia_stride=10</var>
+	</method>
 
 	<method name="FedALAQ_0_1_10" type="FedALAQ" platform="cuda:0">
 		<arch type="CNNSimpleLite">
