@@ -306,4 +306,4 @@ class Server:
         return True
     
     def getGlobalModel(self):
-        return pickle.dumps(self.global_model.state_dict())
+        return self.global_model.state_dict()
