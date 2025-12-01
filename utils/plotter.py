@@ -130,7 +130,7 @@ class Plotter:
 
         # scatter all points (faint)
         if show_points:
-            plt.scatter(x, y, s=1, color=c, alpha=0.2)
+            plt.scatter(x, y, s=1, color=c, alpha=0.1)
 
 
         plt.plot(xf[order], yf[order], color=c, linestyle=ls, linewidth=lw, marker=m, label=label)

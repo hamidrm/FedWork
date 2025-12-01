@@ -1,0 +1,22 @@
+nohup: ignoring input
+[94m[16:53:23][fedwork.py]File 'fedalaq_cifar10_vit.xml' was found.[97m
+Traceback (most recent call last):
+  File "fedwork.py", line 1148, in <module>
+    fedwork_ins.start(sys.argv[1])
+  File "fedwork.py", line 1139, in start
+    self.run(config_text)
+  File "fedwork.py", line 224, in run
+    train_dataset_list, test_dataset = self.create_datasets(dataset_cfg, int(fedwork_cfg["@num_of_nodes"]), output_path, seed_value)
+  File "fedwork.py", line 88, in create_datasets
+    dataset_train_list, dataset_test = DS.build_loaders_from_partitions(
+  File "/home/hamidreza/FedWork-IoT/FedWork/dataset/dataset.py", line 104, in build_loaders_from_partitions
+    train_dataset = _make_train_transforms_and_datasets(ds_type) if augment else _make_eval_transforms_and_datasets(ds_type)[0]
+  File "/home/hamidreza/FedWork-IoT/FedWork/dataset/dataset.py", line 73, in _make_train_transforms_and_datasets
+    train_dataset = datasets.CIFAR10(root="./dataset/data", train=True, transform=tf, download=True)
+  File "/home/hamidreza/FedWork-IoT/FedWork/.venv/lib/python3.8/site-packages/torchvision/datasets/cifar.py", line 59, in __init__
+    super(CIFAR10, self).__init__(root, transform=transform,
+  File "/home/hamidreza/FedWork-IoT/FedWork/.venv/lib/python3.8/site-packages/torchvision/datasets/vision.py", line 17, in __init__
+    if isinstance(root, torch._six.string_classes):
+  File "/home/hamidreza/FedWork-IoT/FedWork/.venv/lib/python3.8/site-packages/torch/__init__.py", line 2216, in __getattr__
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+AttributeError: module 'torch' has no attribute '_six'

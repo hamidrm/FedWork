@@ -183,7 +183,7 @@ def create_datasets(
     test_batch_size=64,
     use_dirichlet=False,
     num_workers=0,
-    save_graph=True,Sec
+    save_graph=True,
     add_info_to_figure=False,
     path=None,
     base_seed: int = 0,

@@ -259,13 +259,15 @@ class FedMIA:
         optimizer_inst = self.optimizer(global_model.parameters(), lr)
         loss_fn_inst = self.loss_fn()
 
+
         privacy_engine = PrivacyEngine()
-        global_model, optimizer_inst, _ = privacy_engine.make_private(
+
+        global_model, optimizer_inst, self.train_data_loader = privacy_engine.make_private(
             module=global_model,
             optimizer=optimizer_inst,
             data_loader=self.train_data_loader,
-            noise_multiplier=0,
-            max_grad_norm=1e10,
+            noise_multiplier=0.0,   # no noise
+            max_grad_norm=1e10,     # no effective clipping
         )
 
         self.device = device

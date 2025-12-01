@@ -20,6 +20,7 @@ class BaseArch(Enum):
     ShuffleNetV2 = "ShuffleNetV2"
     AllCNN = "AllCNN"
     CNNSimpleLite = "CNNSimpleLite"
+    ViTTinyCIFAR10 = "ViTTinyCIFAR10"
 
 class ActivationFunction(Enum):
     ReLUFunction = "relu"

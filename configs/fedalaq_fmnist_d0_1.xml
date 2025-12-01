@@ -10,17 +10,17 @@
 	</dataset>
 
 	<localclients learning_rate="0.01" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda:0">10</localclients>
-	<method name="FedAvg" type="FedALAQ" platform="cuda:0">
-		<arch type="CNNSimpleLite">
-		</arch>
-		<var name="epochs_num">3</var>
-		<var name="args">lcr=1.0,alpha=0,fedmia_stride=501</var>
-	</method>
 	<method name="FedALAQ_0_3_100" type="FedALAQ" platform="cuda:0">
 		<arch type="CNNSimpleLite">
 		</arch>
 		<var name="epochs_num">3</var>
 		<var name="args">lcr=0.3,alpha=100,randomized_quantization_levels=256,fedmia_stride=501</var>
+	</method>
+	<method name="FedAvg" type="FedALAQ" platform="cuda:0">
+		<arch type="CNNSimpleLite">
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">lcr=1.0,alpha=0,fedmia_stride=501</var>
 	</method>
 	<method name="FedAvgQ8" type="FedALAQ" platform="cuda:0">
 		<arch type="CNNSimpleLite">
