@@ -2,6 +2,7 @@ import pickle
 import os
 import matplotlib.pyplot as plt
 import numpy as np
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import torch
 
 def load_pickle_file(filename):
@@ -71,10 +72,10 @@ def get_acc_on_fixed_budget(x, y, budget):
     
 def main():
     number_of_clients = 10
-    budget = 2500000
+    budget = 200000000
     running_path = os.getcwd()
     
-    pathmnist_paths = ["fedalaq_pathmnist_d0_1", "fedalaq_cifar100_d1_0_10_10","fedalaq_fmnist_d0_1","fedalaq_fmnist_d1_0","fedalaq_fmnist_d100_0"]
+    pathmnist_paths = ["fedalaq_cifar10_vit"]
     
     for path in pathmnist_paths:
         filepath = os.path.join(running_path, "output")

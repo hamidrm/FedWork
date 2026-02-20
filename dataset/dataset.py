@@ -36,7 +36,58 @@ def _make_eval_transforms_and_datasets(ds_type: str):
         train_dataset = datasets.CIFAR100(root="./dataset/data", train=True, transform=tf, download=True)
         test_dataset  = datasets.CIFAR100(root="./dataset/data", train=False, transform=tf, download=True)
         dataset_label_list = train_dataset.targets
+        
+    elif ds_type == "SVHN":
+        tf = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+        
+        train_dataset = datasets.SVHN(root='./data', split='train', download=True, transform=tf)
+        test_dataset = datasets.SVHN(root='./data', split='test', download=True, transform=tf)
+        train_dataset.targets = train_dataset.labels
+        dataset_label_list = train_dataset.labels
+        train_dataset.classes = [str(i) for i in range(10)]
+        train_dataset.class_to_idx = {str(i): i for i in range(10)}
+        test_dataset.classes = [str(i) for i in range(10)]
+        test_dataset.class_to_idx = {str(i): i for i in range(10)}
+        
+    elif ds_type == "IMAGENETTE":
+        IMAGENET_MEAN = (0.485, 0.456, 0.406)
+        IMAGENET_STD  = (0.229, 0.224, 0.225)
 
+        tf_train = transforms.Compose([
+            transforms.RandomResizedCrop(224, scale=(0.6, 1.0), ratio=(3/4, 4/3)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+        ])
+
+        tf_test = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+        ])
+        try:
+            train_dataset = datasets.Imagenette(root='./data', split='train', download=True, transform=tf_train)
+        except RuntimeError as e:
+            if "already exists" in str(e) and "imagenette2" in str(e):
+                train_dataset = datasets.Imagenette(root="./data", split="train", download=False, transform=tf_train)
+            else:
+                raise
+        try:
+            test_dataset = datasets.Imagenette(root='./data', split='val', download=True, transform=tf_test)
+        except RuntimeError as e:
+            if "already exists" in str(e) and "imagenette2" in str(e):
+                test_dataset = datasets.Imagenette(root='./data', split='val', download=False, transform=tf_test)
+            else:
+                raise
+        
+        train_dataset.targets = [y for _, y in train_dataset._samples]
+        dataset_label_list = train_dataset.targets
+        
     elif ds_type == "FashionMNIST":
         tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
         train_dataset = datasets.FashionMNIST(root="./dataset/data", train=True, transform=tf, download=True)
@@ -84,6 +135,38 @@ def _make_train_transforms_and_datasets(ds_type: str):
     elif ds_type == "FashionMNIST":
         tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
         train_dataset = datasets.FashionMNIST(root="./dataset/data", train=True, transform=tf, download=True)
+    elif ds_type == "SVHN":
+        tf = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+        
+        train_dataset = datasets.SVHN(root='./data', split='train', download=True, transform=tf)
+        train_dataset.targets = train_dataset.labels
+        train_dataset.classes = [str(i) for i in range(10)]
+        train_dataset.class_to_idx = {str(i): i for i in range(10)}
+    elif ds_type == "IMAGENETTE":
+        IMAGENET_MEAN = (0.485, 0.456, 0.406)
+        IMAGENET_STD  = (0.229, 0.224, 0.225)
+
+        tf_train = transforms.Compose([
+            transforms.RandomResizedCrop(224, scale=(0.6, 1.0), ratio=(3/4, 4/3)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+        ])
+        try:
+            train_dataset = datasets.Imagenette(root='./data', split='train', download=True, transform=tf_train)
+        except RuntimeError as e:
+            if "already exists" in str(e) and "imagenette2" in str(e):
+                train_dataset = datasets.Imagenette(root="./data", split="train", download=False, transform=tf_train)
+            else:
+                raise
+
+        train_dataset.targets = [y for _, y in train_dataset._samples]
+        dataset_label_list = train_dataset.targets
+        
     elif ("-" in ds_type) and ds_type.split("-")[0].lower() == "medmnist":
         tf = transforms.Compose([transforms.ToTensor()])
         name = ds_type.split("-")[1]
@@ -149,6 +232,8 @@ def _infer_ds_type_from_base(base_ds):
     if isinstance(base_ds, datasets.CIFAR100):  return "CIFAR100"
     if isinstance(base_ds, datasets.MNIST):     return "MNIST"
     if isinstance(base_ds, datasets.FashionMNIST): return "FashionMNIST"
+    if isinstance(base_ds, datasets.SVHN): return "SVHN"
+    if isinstance(base_ds, datasets.Imagenette): return "IMAGENETTE"
     try:
         from dataset import dataset
         if isinstance(base_ds, dataset.MedMNIST.MedMNIST):
@@ -241,7 +326,7 @@ def create_datasets(
             client_labels = [dataset_label_list[i] for i in assigned_indices]
             class_counts = Counter(client_labels)
             client_distributions.append(class_counts)
-            if isinstance(train_dataset_eval.targets, list):
+            if isinstance(train_dataset_eval.targets, list) :
                 classes.append([train_dataset_eval.targets[i] for i in assigned_indices])
             else:
                 classes.append([train_dataset_eval.targets[i].item() for i in assigned_indices])

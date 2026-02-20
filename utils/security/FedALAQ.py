@@ -46,12 +46,15 @@ class FedALAQDefense:
                 layer_names.add(layer_name)
                 probabilities[layer_name] = torch.rand(1).item()
 
+        cosim_list = []
         for layer in layers_data_pattern_model.keys():
             layers_data_pattern_model[layer] = torch.cat(layers_data_pattern_model[layer], dim=0)
             layers_data_trained_model[layer] = torch.cat(layers_data_trained_model[layer], dim=0)
             cosim_dict[layer] = (F.cosine_similarity(layers_data_pattern_model[layer], layers_data_trained_model[layer], dim=0) + 1) / 2.0
-
+            cosim_list.append(cosim_dict[layer])
+            profiler.save_variable(f"FedALAQ_Cosim_{client_name}_layer_{layer}", cosim_dict[layer], self.counter - 1)
         layer = list(layers_data_pattern_model.keys())[-1]
+        profiler.save_variable(f"FedALAQ_Cosim_avg_{client_name}", sum(cosim_list) / len(cosim_list), self.counter - 1)
         profiler.save_variable(f"FedALAQ_Cosim_{client_name}", cosim_dict[layer], self.counter - 1)
         profiler.save_variable(f"FedALAQ_m_{client_name}", torch.exp(self.alpha * (cosim_dict[layer]-1)), self.counter - 1)
         p_k = {}

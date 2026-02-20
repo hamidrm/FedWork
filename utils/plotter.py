@@ -505,6 +505,11 @@ class Plotter:
                     a = a.cpu()
                 return a.flatten().numpy()
             elif isinstance(a, (list, tuple, np.ndarray)):
+                for b in range(len(a)):
+                    if isinstance(a[b], torch.Tensor):
+                        a[b] = a[b].detach()
+                        if a[b].is_cuda:
+                            a[b] = a[b].cpu()
                 return np.asarray(a, dtype=float).ravel()
             else:
                 raise TypeError("Each element of Y must be a 1D tensor/list/array.")
@@ -570,18 +575,18 @@ class Plotter:
         # Build mask for filling
         if fill_intervals is None:
             mask = np.ones_like(x_np, dtype=bool)
-            fill_lbl = f'{label} envelope'
+            fill_lbl = f'{label}'
         else:
             mask = np.zeros_like(x_np, dtype=bool)
             for x0, x1 in fill_intervals:
                 mask |= (x_np >= x0) & (x_np <= x1)
-            fill_lbl = f'{label} envelope (restricted)'
+            fill_lbl = f'{label}'
 
         # Fill between min/max only where mask is True
         plt.fill_between(x_np, y_min, y_max, where=mask, interpolate=True,
                         alpha=alpha_fill, color=base_color, label=fill_lbl)
 
         # Average line (primary)
-        plt.plot(x_np, y_avg, label=f'{label} avg',
+        plt.plot(x_np, y_avg,
              color=base_color, linestyle=ls, linewidth=avg_lw, marker=m, alpha=0.95)
 

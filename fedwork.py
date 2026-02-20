@@ -486,7 +486,172 @@ class fedwork:
         fig_pf_tag = "fig:pf"
         fig_hv_tag = "fig:hv"
         fig_avg_tag = "fig:avg"
+        fig_avg2_tag = "fig:avg2"
+        
+        if fig_avg2_tag in report_cfg:
+            figs_cfg = report_cfg[fig_avg2_tag]
 
+            if not isinstance(figs_cfg, list):
+                figs_cfg = [figs_cfg]
+                
+            for fig in figs_cfg:
+                
+                attr_name = "@name"
+                attr_x_axis = "@x_axis"
+                attr_x_axis_range = "@x_axis_range"
+                attr_y_axis = "@y_axis"
+                attr_methods = "@methods"
+                attr_caption = "@caption"
+                attr_labels = "@labels"
+                attr_x_axis_title = "@x_axis_title"
+                attr_y_axis_title = "@y_axis_title"
+                attr_x_axis_scale = "@x_axis_scale"
+                attr_y_axis_scale = "@y_axis_scale"
+                attr_style = "@style"
+                attr_senses = "@senses"
+                fig_caption = ""
+
+                if not attr_name in fig.keys():
+                    util.logger.log_error(f"Figures should have a name attribute!")
+                    break
+
+                if not attr_x_axis in fig.keys():
+                    x_axis = "Round"
+                else:
+                    x_axis = fig["@x_axis"]
+
+                if not attr_y_axis in fig.keys():
+                    util.logger.log_error(f"Figure '{attr_name}' should have a y_axis attribute!")
+                    break
+
+            
+                if not attr_methods in fig.keys():
+                    util.logger.log_error(f"Figure '{attr_name}' should have a methods attribute!")
+                    break
+
+
+
+                name = fig[attr_name]
+                y_axis = fig[attr_y_axis]
+                methods = str(fig[attr_methods]).split(",")
+
+                if not attr_caption in fig.keys():
+                    fig_caption = name
+                else:
+                    fig_caption = fig[attr_caption]
+
+                if not attr_style in fig.keys():
+                    style = ""
+                else:
+                    style = fig[attr_style]
+
+                x_axis_scale = 1.0
+                if attr_x_axis_scale in fig.keys():
+                    x_axis_scale = float(fig[attr_x_axis_scale])
+
+                y_axis_scale = 1.0
+                if attr_y_axis_scale in fig.keys():
+                    y_axis_scale = float(fig[attr_y_axis_scale])
+
+                y_labels = None
+                if attr_labels in fig.keys():
+                    y_labels = str(fig[attr_labels]).split(",")
+                
+                plot_index = 0
+
+                self.plotter.plot_begin(style_str=style)
+
+                for method in methods:
+                    x_axis_data = []
+                    y_axis_data = []
+                    for method in methods:
+
+                        if not method in probes_bin:
+                            util.logger.log_error(f"Needed method(s) for figure '{name}' was not found!")
+                            break
+                
+                        probes = pickle.loads(probes_bin[method])
+                        probes_times_prof = probes["time_profiles"]
+                        probes_vars = probes["var_values"]
+                        probes_var_changes = probes["var_changes"]
+
+                        y_axis_params = str(fig[attr_y_axis]).split(",")
+                        
+                        for y_axis in y_axis_params:
+                            if y_axis in probes_times_prof:
+                                fig_data = probes_times_prof[y_axis]
+                            elif y_axis in probes_vars:
+                                fig_data = probes_vars[y_axis]
+                            elif y_axis in probes_var_changes:
+                                fig_data = probes_var_changes[y_axis]
+                            else:
+                                util.logger.log_error(f"Expected y_axis for figure '{name}' was not found!")
+                                break
+                            
+                            y = []
+                            x = []
+                            if not attr_x_axis_range in fig.keys():
+                                if x_axis == "round":
+                                    x = [fig_data_elem[1] for fig_data_elem in fig_data]# + [501]
+                                elif x_axis == "time":
+                                    x = [(fig_data_elem[0] - fig_data[0][0]) for fig_data_elem in fig_data]
+                                else:
+                                    util.logger.log_error(f"'{x_axis}' does not defined for figure '{name}' was not found!")
+                                    break
+                                y = [fig_data_elem[2] for fig_data_elem in fig_data]
+                            else:
+                                x_range_str = fig[attr_x_axis_range]
+                                x_range = str.split(x_range_str, ",")
+                                x_range_start = float(x_range[0])
+                                x_range_end = 0
+                                if x_axis == "round":
+                                    x_range_end = float(x_range[1]) if float(x_range[1]) != -1 else max(fig_data[:][1])
+
+                                    for i in range(len(fig_data)):
+                                        if fig_data[i][1] >= x_range_start and fig_data[i][1] <= x_range_end:
+                                            x.append(fig_data[i][1])
+                                            y.append(fig_data[i][2])
+                                    
+                                elif x_axis == "time":
+                                    x_range_end = float(x_range[1]) if float(x_range[1]) != -1 else max(fig_data[:][0])
+                                    for i in range(len(fig_data)):
+                                        if (fig_data[i][0] - fig_data[0][0]) >= x_range_start and (fig_data[i][0] - fig_data[0][0]) <= x_range_end:
+                                            x.append(fig_data[i][0])
+                                            y.append(fig_data[i][2])
+                                else:
+                                    util.logger.log_error(f"'{x_axis}' does not defined for figure '{name}' was not found!")
+                                    break
+                            
+
+                            if len(x_axis_data) == 0:
+                                x_axis_data = [x_v * x_axis_scale for x_v in x]
+                            y = [y_v * y_axis_scale for y_v in y]
+
+                            if y_labels:
+                                ylabel=y_labels[plot_index]
+                            elif len(y_axis_params) == 1:
+                                ylabel=method
+                            else:
+                                ylabel=f"{method}.{y_axis}"
+                            #y.insert(0, torch.zeros_like(y[0]))
+                            #print(x_axis_data)
+                            
+                            y_axis_data.append(y)
+                            
+                        plot_index += 1
+                    self.plotter.plot_envelope(x_axis_data, y_axis_data, ylabel, style, plot_index)
+                x_axis_title = x_axis
+                y_axis_title = y_axis
+
+                if attr_x_axis_title in fig.keys():
+                    x_axis_title = fig[attr_x_axis_title]
+
+                if attr_y_axis_title in fig.keys():
+                    y_axis_title = fig[attr_y_axis_title]
+
+                figure_path = os.path.join(output_path, f'{name}.pdf')
+                self.plotter.plot_end(x_axis_title, y_axis_title, fig_caption, style, figure_path)
+                
         if fig_avg_tag in report_cfg:
             figs_cfg = report_cfg[fig_avg_tag]
 
@@ -567,7 +732,7 @@ class fedwork:
                 
                 self.plotter.plot_begin(style_str=style)
                 
-                
+                print(methods_groups)
                 for group_name, method_group in methods_groups:
                     x_axis_data = []
                     y_axis_data = []

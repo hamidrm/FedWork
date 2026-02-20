@@ -1,5 +1,6 @@
 *.log
 *.png
+*.pdf
 __pycache__/
 arch/__pycache__/
 data/
