@@ -1,7 +1,7 @@
-<fedwork_cfg name="fedavg_2" num_of_nodes="10" net_port="36525" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="300">
-	<dataset type="CIFAR100">
+<fedwork_cfg name="fedavg" num_of_nodes="10" net_port="36525" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="200">
+	<dataset type="FashionMNIST">
 		<var name="heterogeneous">False</var>
-		<var name="alpha">0.1</var>
+		<var name="alpha">100</var>
 		<var name="train_batch_size">100</var>
 		<var name="test_batch_size">100</var>
 		<var name="num_workers">0</var>
@@ -9,18 +9,14 @@
 		<var name="enclosed_info">True</var>
 		<var name="dirichlet">True</var>
 	</dataset>
-	<localclients learning_rate="0.1" optimizer="SGD" platform="cuda:1">10</localclients>
-	<method name="FedLA_New_Cosim_10p_niid" type="FedAvg" platform="cuda:1">
-		<arch type="AlexNetMini">
-			<var name="DropeRate">0.0</var>
-			<var name="NumberOfInputChannels">3</var>
+	<localclients learning_rate="0.01" optimizer="SGD" platform="cpu">10</localclients>
+	<method name="FedAvgExample" type="FedAvg" platform="cpu">
+		<arch type="CNNSimpleLite">
 		</arch>
 		<var name="epochs_num">3</var>
-		<var name="args">levels=7,quantization=QSGD,contributors_percent=50</var>
+		<var name="args">contributors_percent=100</var>
 	</method>
 	<report save_log="True" log_over_net="192.168.166.143,23456">
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="MIA_TPR_10p" caption=" " x_axis="round" y_axis="MIA_CUMUL" y_axis_title="TPR@FPR1%" x_axis_title="# rounds" methods="FedMIA_New_Cosim_10p_niid,FedMIAMixUp_New_Cosim_10p_niid,FedLA_New_Cosim_10p_niid" labels="FedMIA,FedMIA(MixUp),FedMIA(FedLA 10%)"/>
-		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="Accuracy_10p" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# rounds" methods="FedMIA_New_Cosim_10p_niid,FedMIAMixUp_New_Cosim_10p_niid,FedLA_New_Cosim_10p_niid" labels="Without Defenses,MixUp,FedLA 10%"/>
-		<fig style="style=bmh;linewidths=1,1,1,1,1,1;" name="Link_10p" caption=" " x_axis="round" y_axis="ServerDataRecvBytes" methods="FedMIA_New_Cosim_10p_niid,FedLA_New_Cosim_10p_niid" labels="FedAvg,FedLA 10%"/>
+		<fig style="style=bmh;colors=black,green,blue,red;linestyles=--,:,-.,-;linewidths=1,1,1,1;" name="Accuracy" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# rounds" methods="FedAvgExample" labels="FedAvg"/>
 	</report>
 </fedwork_cfg>
