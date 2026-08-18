@@ -71,11 +71,12 @@ def get_acc_on_fixed_budget(x, y, budget):
     
 def main():
     number_of_clients = 10
-    budget = 25000000
+    budget = 250000000
+    #budget = 50000000
     running_path = os.getcwd()
     
-    pathmnist_paths = ["fedalaq_pathmnist_d1_0", "fedalaq_pathmnist_d100_0","fedalaq_cifar100_resnet18_comm_0_1","fedalaq_cifar100_resnet18_comm_100_0"]
-    
+    pathmnist_paths = ["fedalaq_cifar100_resnet18_comm_1_0"]
+    #pathmnist_paths = ["fedalaq_pathmnist_d1_0", "fedalaq_pathmnist_d100_0"]
     for path in pathmnist_paths:
         filepath = os.path.join(running_path, "output")
         filepath = os.path.join(filepath, path)

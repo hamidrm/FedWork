@@ -1,38 +1,32 @@
-<fedwork_cfg name="fedalaq_cifar100_resnet18_comm_100_0_40P_50" experiment_mode="true" seed="42" num_of_nodes="10" net_port="36575" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="400">
+<fedwork_cfg name="fedalaq_cifar100_resnet18_comm_300_0_4P_10000" experiment_mode="true" seed="42" num_of_nodes="150" net_port="36575" net_ip="127.0.0.1" eval_criterion="CrossEntropyLoss" num_of_rounds="10000">
 	<dataset type="CIFAR100">
-		<var name="alpha">100.0</var>
+		<var name="alpha">0.1</var>
 		<var name="train_batch_size">100</var>
 		<var name="test_batch_size">100</var>
-		<var name="num_workers">8</var>
+		<var name="num_workers">0</var>
 		<var name="save_graph">True</var>
 		<var name="enclosed_info">True</var>
 		<var name="dirichlet">True</var>
 	</dataset>
 
-	<localclients learning_rate="0.01" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda:0">10</localclients>
-	<method name="FedAvg" type="FedALAQ" platform="cuda:0">
+	<localclients learning_rate="0.01" momentum="0.9" weight_decay="5e-4" optimizer="SGD" platform="cuda:1">150</localclients>
+	<method name="FedAvg" type="FedALAQ" platform="cuda:1">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">3</var>
-		<var name="args">lcr=1.0,alpha=0,fedmia_stride=1001,contributors_percent=100</var>
+		<var name="args">lcr=1.0,alpha=0,fedmia_stride=20001,contributors_percent=10</var>
 	</method>
-	<method name="FedALAQ_0_2_10" type="FedALAQ" platform="cuda:0">
+	<method name="FedALAQ_0_3_100" type="FedALAQ" platform="cuda:1">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">3</var>
-		<var name="args">lcr=0.2,alpha=10,randomized_quantization_levels=256,fedmia_stride=1001,contributors_percent=100</var>
+		<var name="args">lcr=0.3,alpha=100,randomized_quantization_levels=256,fedmia_stride=20001,contributors_percent=10</var>
 	</method>
-	<method name="FedAvgQ8" type="FedALAQ" platform="cuda:0">
+	<method name="FedAvgQ8" type="FedALAQ" platform="cuda:1">
 		<arch type="ResNet18">
 		</arch>
 		<var name="epochs_num">3</var>
-		<var name="args">lcr=1.0,alpha=0,randomized_quantization_levels=256,fedmia_stride=1001,contributors_percent=100</var>
-	</method>
-	<method name="FedLP" type="FedLP" platform="cuda:0">
-		<arch type="ResNet18">
-		</arch>
-		<var name="epochs_num">3</var>
-		<var name="args">p=0.2,contributors_percent=100</var>
+		<var name="args">lcr=1.0,alpha=0,randomized_quantization_levels=256,fedmia_stride=20001,contributors_percent=10</var>
 	</method>
 	<report save_log="True" log_over_net="192.168.0.157,23456">
 		<fig style="style=bmh;axis_font_size=16;legend_font_size=14;legend_pos=lower_left;legend_ncol=4;bbox_to_anchor=0.0,1.00;legend_status=on;colors=black,green,blue,red,darkorange,navy,darkcyan,slategray,purple;linewidths=1,1,1,1,1,1;" name="accuracy_d100_0_time" caption=" " x_axis="time" y_axis="EvaluationAccuracy" y_axis_title="Top-1 Accuracy" x_axis_title="Time (hours)" x_axis_scale="27e-5" methods="FedAvgQ8,FedALAQ_0_2_10,FedAvg" labels="FedAvgQ8,FedALAQ,FedAvg"  />

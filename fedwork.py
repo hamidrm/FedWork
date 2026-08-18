@@ -426,6 +426,7 @@ class fedwork:
                     break
                 if localclients_num != 0:
                     if exp_mode:
+                        util.logger.log_warning(f"Creating local clients in sequential (1 tpc)")
                         for client_id in range(localclients_num):
                             model = arch.CreateModel().to(method_platform)
 

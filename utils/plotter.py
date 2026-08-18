@@ -412,7 +412,7 @@ class Plotter:
 
         if show_points:
             plt.scatter(x, y, s=r, color=c, alpha=a)
-        plt.plot(x, y, alpha=0.9, label=label, color=c, linestyle=ls, linewidth=lw, marker=m)
+        plt.plot(x, y, alpha=1.0, label=label, color=c, linestyle=ls, linewidth=lw, marker=m)
         
     def plot_envelope(self, x, Y, label, style_str, style_index):
 

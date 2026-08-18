@@ -71,7 +71,7 @@ class FederatedLearningClass(ABC):
     def pack_server_model(self, raw_model):
         return raw_model
 
-    def unpack_server_model(self, packed_model):
+    def unpack_server_model(self, packed_model, current_model = None):
         return packed_model
 
     def train(self, client_train_dict : dict):
@@ -90,6 +90,9 @@ class FederatedLearningClass(ABC):
     def client_training_criterion(self, criterion_fn, outputs, labels):
         return criterion_fn(outputs, labels)
 
+    def after_backward(self, client_train_dict):
+        return True
+        
     def ready_to_aggregate(self, num_of_received_model: int) -> bool:
         if num_of_received_model == self.num_of_contributor_nodes:
             return True

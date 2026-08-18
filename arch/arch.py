@@ -21,6 +21,7 @@ class BaseArch(Enum):
     AllCNN = "AllCNN"
     CNNSimpleLite = "CNNSimpleLite"
     ViTTinyCIFAR10 = "ViTTinyCIFAR10"
+    BinaryNet = "BinaryNet"
 
 class ActivationFunction(Enum):
     ReLUFunction = "relu"

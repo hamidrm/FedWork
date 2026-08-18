@@ -8,6 +8,7 @@ from core.FederatedLearningClass import *
 from core.ClientComm import *
 from utils.logger import *
 from utils.security.DataManipulation import *
+from utils.profiler import *
 import copy
 
 class Client:
@@ -115,7 +116,7 @@ class Client:
         if lr != None:
             for param_group in self.client_optimizer.param_groups:
                 param_group['lr'] = lr
-
+        profiler.start_measuring(MEASURE_PROBE_TRAIN_TIME+self.name)
         for epoch in range(epochs_num):
             self.total_epochs += 1
 
@@ -174,6 +175,8 @@ class Client:
 
             logger.log_debug(f'[{self.name}]: Epoch Done!')
             self.client_comm.send_notification_to_server(COMM_HEADER_NOTI_EPOCH_DONE, 0, epoch_info)
+        
+        profiler.stop_measuring(MEASURE_PROBE_TRAIN_TIME+self.name, self.training_count)
         
         if self.method != None:
             packed_data = self.method.pack_client_model(self.client_model.state_dict(), global_model = self.global_model.state_dict(), id = self.id)

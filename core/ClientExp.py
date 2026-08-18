@@ -35,6 +35,7 @@ class ClientExp:
 
 
     def set_model(self, model):
+        model = self.method.unpack_server_model(model, self.client_model.state_dict())
         self.client_model.load_state_dict(model, strict=False)
         self.global_model.load_state_dict(model, strict=False)
 
@@ -96,7 +97,18 @@ class ClientExp:
 
                     loss = self.method.client_training_criterion(self.criterion, outputs, labels)
                     loss.backward()
-                    self.client_optimizer.step()
+
+                    client_train_dict["outputs"] = outputs
+                    client_train_dict["loss"] = loss
+
+                    should_step = True
+                    if self.method is not None and hasattr(self.method, "after_backward"):
+                        res = self.method.after_backward(client_train_dict)
+                        if res is False:
+                            should_step = False
+
+                    if should_step:
+                        self.client_optimizer.step()
 
                     # statistics
                     running_corrects += self.method.client_training_correctness(outputs, labels)

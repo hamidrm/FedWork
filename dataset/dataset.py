@@ -12,7 +12,9 @@ import matplotlib.pyplot as plt
 from dataset import MedMNIST
 from utils.logger import *
 import utils.consts as consts
-
+class ScaleToMinusOneOne:
+    def __call__(self, x):
+        return x.mul(2.0).sub(1.0)
 
 def _make_eval_transforms_and_datasets(ds_type: str):
     if ds_type == "MNIST":
@@ -28,7 +30,26 @@ def _make_eval_transforms_and_datasets(ds_type: str):
         train_dataset = datasets.CIFAR10(root="./dataset/data", train=True, transform=tf, download=True)
         test_dataset  = datasets.CIFAR10(root="./dataset/data", train=False, transform=tf)
         dataset_label_list = train_dataset.targets
+    elif ds_type == "CIFAR10_BOP":
+        tf = transforms.Compose([
+            transforms.ToTensor(),
+            ScaleToMinusOneOne(),
+        ])
 
+        train_dataset = datasets.CIFAR10(
+            root="./dataset/data",
+            train=True,
+            transform=tf,
+            download=True,
+        )
+
+        test_dataset = datasets.CIFAR10(
+            root="./dataset/data",
+            train=False,
+            transform=tf,
+        )
+
+        dataset_label_list = train_dataset.targets
     elif ds_type == "CIFAR100":
         mean = (0.5071, 0.4865, 0.4409)
         std  = (0.2673, 0.2564, 0.2761)
@@ -122,6 +143,20 @@ def _make_train_transforms_and_datasets(ds_type: str):
             transforms.Normalize(*stats),
         ])
         train_dataset = datasets.CIFAR10(root="./dataset/data", train=True, transform=tf, download=True)
+    elif ds_type == "CIFAR10_BOP":
+        tf = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            ScaleToMinusOneOne(),
+        ])
+
+        train_dataset = datasets.CIFAR10(
+            root="./dataset/data",
+            train=True,
+            transform=tf,
+            download=True,
+        )
     elif ds_type == "CIFAR100":
         mean = (0.5071, 0.4865, 0.4409)
         std = (0.2673, 0.2564, 0.2761)

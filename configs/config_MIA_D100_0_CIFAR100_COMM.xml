@@ -34,12 +34,19 @@
 		<var name="epochs_num">3</var>
 		<var name="args">p=0.2</var>
 	</method>
+	<method name="FedLUAR" type="FedLUAR" platform="cuda:0">
+		<arch type="ResNet18">
+		</arch>
+		<var name="epochs_num">3</var>
+		<var name="args">lcr=0.3,contributors_percent=100</var>
+	</method>
+
 	<report save_log="True" log_over_net="192.168.0.157,23456">
-		<fig name="Accuracy_D0_1" caption=" " x_axis="time" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedDrop" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedDrop"  />
-		<fig name="Loss_D0_1" caption=" " x_axis="round" y_axis="EvaluationLoss" y_axis_title="Loss" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedDrop" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedDrop"  />
-		<fig name="Link_D0_1" caption=" " x_axis="round" y_axis="ServerTotalRecvBytes" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedDrop" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedDrop"  />
-		<fig name="Link_D0_1_T" caption=" " x_axis="time" y_axis="ServerTotalRecvBytes" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedDrop" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedDrop"  />
-		<fig:pf style="style=bmh;colors=black,green,blue,red,darkorange,navy,darkcyan,slategray,purple;linestyles=--;linewidths=1,1,1,1,1,1;" name="PF" caption=" " x_axis="ServerTotalRecvBytes" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedDrop"  />
+		<fig name="Accuracy_D0_1" caption=" " x_axis="time" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedLUAR" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedLUAR"  />
+		<fig name="Loss_D0_1" caption=" " x_axis="round" y_axis="EvaluationLoss" y_axis_title="Loss" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedLUAR" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedLUAR"  />
+		<fig name="Link_D0_1" caption=" " x_axis="round" y_axis="ServerTotalRecvBytes" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedLUAR" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedLUAR"  />
+		<fig name="Link_D0_1_T" caption=" " x_axis="time" y_axis="ServerTotalRecvBytes" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedLUAR" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedLUAR"  />
+		<fig:pf style="style=bmh;colors=black,green,blue,red,darkorange,navy,darkcyan,slategray,purple;linestyles=--;linewidths=1,1,1,1,1,1;" name="PF" caption=" " x_axis="ServerTotalRecvBytes" y_axis="EvaluationAccuracy" y_axis_title="Accuracy" x_axis_title="# Rounds" methods="FedAvgQ8,FedALAQ_0_3_100,FedAvg,FedLP,FedLUAR" labels="FedAvgQ8,FedALAQ,FedAvg,FedLP,FedLUAR"  />
 			
 	</report>
 </fedwork_cfg>

@@ -12,7 +12,7 @@ from utils.logger import *
 from utils.profiler import *
 
 class Server:
-    def __init__(self, ip_addr: IpAddr, fl_method: FederatedLearningClass, test_ds : torch.utils.data.DataLoader, model : nn.Module, loss : nn.Module, executer = "cpu", experimentMode = False):
+    def __init__(self, ip_addr: IpAddr, fl_method: FederatedLearningClass, test_ds : torch.utils.data.DataLoader, model : nn.Module, loss : nn.Module, executer = "cpu", experimentMode = True):
         
         self.global_model = model
         if not experimentMode:
