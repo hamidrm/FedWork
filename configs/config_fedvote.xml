@@ -1,0 +1,53 @@
+<fedwork_cfg
+    name="fedvote_cifar10"
+    experiment_mode="true"
+    seed="42"
+    num_of_nodes="10"
+    net_port="36575"
+    net_ip="127.0.0.1"
+    eval_criterion="CrossEntropyLoss"
+    num_of_rounds="500">
+
+    <dataset type="CIFAR10_BOP">
+        <var name="train_batch_size">100</var>
+        <var name="test_batch_size">100</var>
+        <var name="num_workers">8</var>
+        <var name="save_graph">True</var>
+        <var name="enclosed_info">True</var>
+        <var name="dirichlet">False</var>
+        <var name="equal_client_sizes">True</var>
+    </dataset>
+
+    <localclients
+        learning_rate="0.001"
+        momentum="0.0"
+        weight_decay="0.0"
+        optimizer="Adam"
+        platform="cuda:0">10
+    </localclients>
+	<method name="FEDVOTE" type="FedVote" platform="cuda:0">
+		<arch type="BinaryNet2">
+			<var name="WeightMode">2</var>
+			<var name="WeightScale">1.5</var>
+
+			<var name="ActivationMode">1</var>
+			<var name="BNMode">1</var>
+
+			<var name="FreezeFinalLayer">1</var>
+			<var name="FinalLayerSeed">1234</var>
+		</arch>
+
+		<var name="epochs_num">1</var>
+		<var name="args">contributors_percent=100,normalization_scale=1.5,p_min=0.001,diagnostics=1,diagnostic_every=1</var>
+	</method>
+    <method name="FEDBOP" type="FedBop" platform="cuda:0">
+        <arch type="BinaryNet">
+        </arch>
+        <var name="epochs_num">1</var>
+        <var name="args">decay_factor=0.1,decay_rounds=200,gamma=0.0001,tau=0.00000001,stats_lr=0.01,contributors_percent=100,diag=1,diag_layer_every=20</var>
+    </method>
+	<report save_log="True" log_over_net="192.168.0.157,23456">
+		<fig style="style=bmh;axis_font_size=16;legend_font_size=14;legend_pos=lower_left;legend_ncol=4;bbox_to_anchor=0.0,1.00;legend_status=on;colors=black,green,blue,red,darkorange,navy,darkcyan,slategray,purple;linewidths=1,1,1,1,1,1;" name="accuracy_d0_1_round" caption=" " x_axis="round" y_axis="EvaluationAccuracy" y_axis_title="Top-1 Accuracy" x_axis_title="RND" methods="FEDBOP,FEDVOTE" labels="FedBop,FedVote"  />
+        <fig:pf style="style=bmh;axis_font_size=16;legend_font_size=14;legend_pos=lower_left;legend_ncol=4;bbox_to_anchor=0.0,1.00;legend_status=off;colors=black,green,blue,red,darkorange,navy,darkcyan,slategray,purple;linewidths=1,1,1,1,1,1;" name="acc_vs_upl_d0_1" caption=" " x_axis="ServerTotalRecvBytes" x_axis_scale="1e-9" y_axis="EvaluationAccuracy" y_axis_title="Top-1 Accuracy" x_axis_title="Total uplink cost (GB)" methods="FEDBOP,FEDVOTE" labels="FedBop,FedVote"  />
+    </report>
+</fedwork_cfg>

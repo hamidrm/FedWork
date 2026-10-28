@@ -1,0 +1,3 @@
+method,first_round_reaching_fedbop_peak_accuracy,achieved_accuracy,cumulative_uplink_GB,cumulative_downlink_GB,cumulative_total_GB
+FedBop,754,0.74669999,1.462940842,1.06001957,2.522960412
+FedVote,109,0.75070000,1.76898389,57.040753,58.80973689

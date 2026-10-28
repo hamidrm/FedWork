@@ -50,6 +50,16 @@ def _make_eval_transforms_and_datasets(ds_type: str):
         )
 
         dataset_label_list = train_dataset.targets
+    elif ds_type == "CIFAR100_N":
+        tf = transforms.Compose([
+            transforms.ToTensor(),
+            ScaleToMinusOneOne(),
+        ])
+
+        train_dataset = datasets.CIFAR100(root="./dataset/data", train=True, transform=tf, download=True)
+        test_dataset  = datasets.CIFAR100(root="./dataset/data", train=False, transform=tf, download=True)
+
+        dataset_label_list = train_dataset.targets
     elif ds_type == "CIFAR100":
         mean = (0.5071, 0.4865, 0.4409)
         std  = (0.2673, 0.2564, 0.2761)
@@ -166,6 +176,15 @@ def _make_train_transforms_and_datasets(ds_type: str):
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
         ])
+        train_dataset = datasets.CIFAR100(root="./dataset/data", train=True, transform=tf, download=True)
+    elif ds_type == "CIFAR100_N":
+        tf = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            ScaleToMinusOneOne(),
+        ])
+
         train_dataset = datasets.CIFAR100(root="./dataset/data", train=True, transform=tf, download=True)
     elif ds_type == "FashionMNIST":
         tf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
@@ -295,6 +314,114 @@ def build_client_loader(train_dataset, indices, batch_size, base_seed, client_id
     )
 
 
+
+def _dirichlet_partition_equal_client_sizes(
+    dataset_label_list,
+    num_clients: int,
+    alpha: float,
+    rng: np.random.Generator,
+):
+    """
+    Create a label-skewed Dirichlet partition while keeping client dataset
+    sizes equal (or differing by at most one when N is not divisible by K).
+
+    A Dirichlet distribution is sampled independently for each class. Samples
+    are then assigned in a globally shuffled order. Once a client's quota is
+    full, that client is removed from the candidate set and the remaining
+    probabilities are renormalized. A remaining-capacity factor is included
+    to avoid filling one client too early and distorting the final classes.
+
+    No sample is dropped or duplicated.
+    """
+    if alpha <= 0:
+        raise ValueError("alpha must be > 0 for Dirichlet partitioning.")
+    if num_clients <= 0:
+        raise ValueError("num_clients must be > 0.")
+
+    if torch.is_tensor(dataset_label_list):
+        labels = dataset_label_list.detach().cpu().numpy().reshape(-1)
+    else:
+        labels = np.asarray(dataset_label_list).reshape(-1)
+
+    total_size = int(labels.shape[0])
+    if total_size < num_clients:
+        raise ValueError(
+            f"Dataset has only {total_size} samples for {num_clients} clients."
+        )
+
+    unique_labels = np.unique(labels)
+    label_to_row = {label: row for row, label in enumerate(unique_labels)}
+
+    # Equal capacity. If N is not divisible by K, sizes differ by at most one.
+    base_size = total_size // num_clients
+    remainder = total_size % num_clients
+    target_sizes = np.full(num_clients, base_size, dtype=np.int64)
+
+    # Randomize who receives the +1 samples to avoid client-id bias.
+    if remainder:
+        extra_clients = rng.permutation(num_clients)[:remainder]
+        target_sizes[extra_clients] += 1
+
+    remaining = target_sizes.copy()
+    partitions = [[] for _ in range(num_clients)]
+
+    # One client-probability vector per class.
+    class_proportions = rng.dirichlet(
+        [alpha] * num_clients,
+        size=len(unique_labels),
+    )
+
+    # Global shuffling prevents a systematic bias toward classes processed last.
+    for idx in rng.permutation(total_size):
+        row = label_to_row[labels[idx]]
+        probs = class_proportions[row].astype(np.float64, copy=True)
+
+        active = remaining > 0
+        probs[~active] = 0.0
+
+        # Smoothly discourage clients that are close to their capacity.
+        capacity_fraction = remaining.astype(np.float64) / target_sizes
+        probs *= capacity_fraction
+
+        prob_sum = probs.sum()
+        if prob_sum <= 0.0:
+            # Defensive fallback; normally only relevant to floating-point
+            # underflow for very small alpha.
+            probs = remaining.astype(np.float64)
+            probs[~active] = 0.0
+            prob_sum = probs.sum()
+
+        probs /= prob_sum
+        client_id = int(rng.choice(num_clients, p=probs))
+
+        partitions[client_id].append(int(idx))
+        remaining[client_id] -= 1
+
+    if np.any(remaining != 0):
+        raise RuntimeError(
+            f"Balanced Dirichlet partition failed; remaining capacities: {remaining.tolist()}"
+        )
+
+    # Shuffle each client's index list so partition order does not carry class info.
+    for client_id in range(num_clients):
+        rng.shuffle(partitions[client_id])
+
+    # Strong sanity checks: full coverage, no duplicates, expected client sizes.
+    actual_sizes = np.asarray([len(p) for p in partitions], dtype=np.int64)
+    if not np.array_equal(actual_sizes, target_sizes):
+        raise RuntimeError(
+            f"Unexpected client sizes. expected={target_sizes.tolist()}, "
+            f"actual={actual_sizes.tolist()}"
+        )
+
+    flat = [idx for part in partitions for idx in part]
+    if len(flat) != total_size or len(set(flat)) != total_size:
+        raise RuntimeError(
+            "Partition must contain every training sample exactly once."
+        )
+
+    return partitions
+
 def create_datasets(
     train_ds_num=5,
     ds_type="MNIST",
@@ -302,6 +429,7 @@ def create_datasets(
     train_batch_size=64,
     test_batch_size=64,
     use_dirichlet=False,
+    equal_client_sizes=False,
     num_workers=0,
     save_graph=True,
     add_info_to_figure=False,
@@ -309,7 +437,9 @@ def create_datasets(
     base_seed: int = 0,
 ):
     logger.log_info(
-        f"Dirichlet: {use_dirichlet}, Non-i.i.d Level: {non_iid_level_alpha}, Train Batch Size: {train_batch_size}, Test Batch Size: {test_batch_size}"
+        f"Dirichlet: {use_dirichlet}, Non-i.i.d Level: {non_iid_level_alpha}, "
+        f"Equal Client Sizes: {equal_client_sizes}, Train Batch Size: {train_batch_size}, "
+        f"Test Batch Size: {test_batch_size}"
     )
 
     rng = np.random.default_rng(base_seed)
@@ -344,27 +474,63 @@ def create_datasets(
     else:
         if non_iid_level_alpha <= 0:
             raise ValueError("non_iid_level_alpha must be > 0 when use_dirichlet=True.")
-        class_proportions = rng.dirichlet([non_iid_level_alpha] * train_ds_num, train_classes_num)
-        subset_indices_lists = [[] for _ in range(train_ds_num)]
-        for class_index in range(train_classes_num):
-            class_indices = [i for i, lbl in enumerate(dataset_label_list) if lbl == class_index]
-            class_indices = rng.permutation(class_indices).tolist()
-            sizes = rng.multinomial(len(class_indices), class_proportions[class_index])
-            offset = 0
-            for client_id, size in enumerate(sizes):
-                assigned_indices = class_indices[offset : offset + size]
-                offset += size
-                subset_indices_lists[client_id].extend(assigned_indices)
+
+        if equal_client_sizes:
+            subset_indices_lists = _dirichlet_partition_equal_client_sizes(
+                dataset_label_list=dataset_label_list,
+                num_clients=train_ds_num,
+                alpha=non_iid_level_alpha,
+                rng=rng,
+            )
+        else:
+            # Original FedWork behavior: Dirichlet label skew may also create
+            # unequal client dataset sizes.
+            class_proportions = rng.dirichlet(
+                [non_iid_level_alpha] * train_ds_num,
+                train_classes_num,
+            )
+            subset_indices_lists = [[] for _ in range(train_ds_num)]
+            for class_index in range(train_classes_num):
+                class_indices = [
+                    i for i, lbl in enumerate(dataset_label_list)
+                    if lbl == class_index
+                ]
+                class_indices = rng.permutation(class_indices).tolist()
+                sizes = rng.multinomial(
+                    len(class_indices),
+                    class_proportions[class_index],
+                )
+                offset = 0
+                for client_id, size in enumerate(sizes):
+                    assigned_indices = class_indices[offset : offset + size]
+                    offset += size
+                    subset_indices_lists[client_id].extend(assigned_indices)
+
         partitions = subset_indices_lists
+
+        logger.log_info(
+            f"Client dataset sizes: {[len(p) for p in partitions]}"
+        )
+
         for client_id in range(train_ds_num):
             assigned_indices = subset_indices_lists[client_id]
             client_labels = [dataset_label_list[i] for i in assigned_indices]
             class_counts = Counter(client_labels)
             client_distributions.append(class_counts)
-            if isinstance(train_dataset_eval.targets, list) :
-                classes.append([train_dataset_eval.targets[i] for i in assigned_indices])
+
+            logger.log_info(
+                f"Client{client_id}: n={len(assigned_indices)}, "
+                f"class_counts={dict(sorted(class_counts.items()))}"
+            )
+
+            if isinstance(train_dataset_eval.targets, list):
+                classes.append([
+                    train_dataset_eval.targets[i] for i in assigned_indices
+                ])
             else:
-                classes.append([train_dataset_eval.targets[i].item() for i in assigned_indices])
+                classes.append([
+                    train_dataset_eval.targets[i].item() for i in assigned_indices
+                ])
 
     train_datasets, test_dataset_loader = build_loaders_from_partitions(
         partitions, ds_type, train_batch_size, test_batch_size, base_seed=base_seed, num_workers=num_workers, augment=True
@@ -386,7 +552,11 @@ def create_datasets(
             plt.text(
                 len(train_datasets) + 1,
                 len(unique_classes) / 2,
-                f"{type(train_dataset_eval).__name__} \nNon-i.i.d level: {non_iid_level_alpha}\nTrain batch size: {train_batch_size}\nTest batch size: {test_batch_size}",
+                f"{type(train_dataset_eval).__name__} \nDirichlet: {use_dirichlet}\n"
+                f"Non-i.i.d level: {non_iid_level_alpha}\n"
+                f"Equal client sizes: {equal_client_sizes}\n"
+                f"Train batch size: {train_batch_size}\n"
+                f"Test batch size: {test_batch_size}",
                 fontsize=8,
                 color="red",
                 rotation=90,

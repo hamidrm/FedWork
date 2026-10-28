@@ -1,0 +1,137 @@
+<fedwork_cfg
+    name="bin_cifar10_vgg7_iid"
+    experiment_mode="true"
+    seed="42"
+    num_of_nodes="10"
+    net_port="36575"
+    net_ip="127.0.0.1"
+    eval_criterion="CrossEntropyLoss"
+    num_of_rounds="400">
+
+    <dataset type="CIFAR10_BOP">
+        <var name="train_batch_size">100</var>
+        <var name="test_batch_size">100</var>
+        <var name="num_workers">8</var>
+        <var name="save_graph">True</var>
+        <var name="enclosed_info">True</var>
+        <var name="dirichlet">False</var>
+        <var name="equal_client_sizes">True</var>
+    </dataset>
+
+    <localclients
+        learning_rate="0.05"
+        momentum="0.0"
+        weight_decay="0.0"
+        optimizer="Adam"
+        platform="cuda:0">10
+    </localclients>
+
+    <method
+        name="BiFLBiMLVGG7"
+        type="BiFLBiML"
+        platform="cuda:0">
+
+        <arch type="VGG7Bin">
+            <var name="VGGMode">2</var>
+            <var name="NumberOfChannels">3</var>
+            <var name="InputDataLen">32</var>
+            <var name="NumberOfOutputNodes">10</var>
+            <var name="FedVoteK">1.5</var>
+            <var name="FedVoteSharedSeed">42</var>
+        </arch>
+
+        <var name="epochs_num">1</var>
+        <var name="args">
+            alpha=1.75,contributors_percent=100,lr1_round=30,lr1=0.02,lr2_round=60,lr2=0.01,diagnostics=1,diagnostic_every=10
+        </var>
+    </method>
+
+    <method
+        name="FedVoteVGG7"
+        type="FedVote"
+        platform="cuda:0">
+
+        <arch type="VGG7Bin">
+            <var name="VGGMode">1</var>
+            <var name="NumberOfChannels">3</var>
+            <var name="InputDataLen">32</var>
+            <var name="NumberOfOutputNodes">10</var>
+            <var name="FedVoteK">1.5</var>
+            <var name="FedVoteSharedSeed">42</var>
+        </arch>
+
+        <var name="epochs_num">1</var>
+        <var name="args">
+            normalization_scale=1.5,p_min=0.001,contributors_percent=100,diagnostics=1,diagnostic_every=25
+        </var>
+    </method>
+
+    <method
+        name="FedBopVGG7"
+        type="FedBop"
+        platform="cuda:0">
+
+        <arch type="VGG7Bin">
+            <var name="VGGMode">0</var>
+            <var name="NumberOfChannels">3</var>
+            <var name="InputDataLen">32</var>
+            <var name="NumberOfOutputNodes">10</var>
+            <var name="FedVoteK">1.5</var>
+            <var name="FedVoteSharedSeed">42</var>
+        </arch>
+
+        <var name="epochs_num">1</var>
+        <var name="args">
+            decay_factor=0.1,decay_rounds=200,gamma=0.0001,tau=0.00000001,stats_lr=0.01,contributors_percent=100,diag=0
+        </var>
+    </method>
+
+    <method name="BiPruneFLVGG7" type="BiPruneFL" platform="cuda:0">
+        <!-- Reuse EXACT same architecture file as FedBop. Do not replace it. -->
+        <arch type="VGG7Bin">
+        <var name="VGGMode">0</var>
+        <var name="NumberOfChannels">3</var>
+        <var name="InputDataLen">32</var>
+        <var name="NumberOfOutputNodes">10</var>
+        </arch>
+        <var name="epochs_num">1</var>
+        <var name="args">contributors_percent=100,pruning_ratio=0.7,score_lr=0.5,score_lr_min=0.0,compression=stc,stc_keep_ratio=0.01,client_grad_steps=0,fast_local_step=0,activation_ste=bireal,recycle_rate=0.2,recycle_round=400,weight_seed=42,score_seed=4242,diag=1,diag_layer_every=25</var>
+    </method>
+
+    <report save_log="True" log_over_net="192.168.0.138,6443">
+        <fig
+            style="style=bmh;axis_font_size=16;legend_font_size=14;legend_pos=lower_left;legend_ncol=3;bbox_to_anchor=0.0,1.00;legend_status=on;colors=black,green,blue,orange;linewidths=1,1,1,1;"
+            name="accuracy_bnn_methods_vgg7"
+            caption=" "
+            x_axis="round"
+            y_axis="EvaluationAccuracy"
+            y_axis_title="Top-1 Accuracy"
+            x_axis_title="Communication Round"
+            methods="FedBopVGG7,FedVoteVGG7,BiFLBiMLVGG7,BiPruneFLVGG7"
+            labels="FedBop,FedVote,BiFL-BiML,BiPruneFL" />
+
+        <fig:pf
+            style="style=bmh;axis_font_size=16;legend_font_size=14;legend_pos=lower_left;legend_ncol=3;bbox_to_anchor=0.0,1.00;legend_status=on;colors=black,green,blue,orange;linewidths=1,1,1,1;"
+            name="accuracy_vs_uplink_bnn_methods_vgg7"
+            caption=" "
+            x_axis="ServerTotalRecvBytes"
+            x_axis_scale="1e-9"
+            y_axis="EvaluationAccuracy"
+            y_axis_title="Top-1 Accuracy"
+            x_axis_title="Cumulative uplink (GB)"
+            methods="FedBopVGG7,FedVoteVGG7,BiFLBiMLVGG7,BiPruneFLVGG7"
+            labels="FedBop,FedVote,BiFL-BiML,BiPruneFL" />
+
+        <fig:pf
+            style="style=bmh;axis_font_size=16;legend_font_size=14;legend_pos=lower_left;legend_ncol=3;bbox_to_anchor=0.0,1.00;legend_status=on;colors=black,green,blue,orange;linewidths=1,1,1,1;"
+            name="accuracy_vs_downlink_bnn_methods_vgg7"
+            caption=" "
+            x_axis="ServerTotalSentBytes"
+            x_axis_scale="1e-9"
+            y_axis="EvaluationAccuracy"
+            y_axis_title="Top-1 Accuracy"
+            x_axis_title="Cumulative downlink (GB)"
+            methods="FedBopVGG7,FedVoteVGG7,BiFLBiMLVGG7,BiPruneFLVGG7"
+            labels="FedBop,FedVote,BiFL-BiML,BiPruneFL" />
+    </report>
+</fedwork_cfg>

@@ -1,0 +1,70 @@
+<fedwork_cfg name="fedbop_cifar100_n_resnet18_binact_iid" experiment_mode="true"
+    seed="42" num_of_nodes="10" net_port="36575" net_ip="127.0.0.1"
+    eval_criterion="CrossEntropyLoss" num_of_rounds="400">
+    <dataset type="CIFAR100_N">
+        <var name="train_batch_size">100</var>
+        <var name="test_batch_size">100</var>
+        <var name="num_workers">0</var>
+        <var name="save_graph">True</var>
+        <var name="enclosed_info">True</var>
+        <var name="dirichlet">False</var>
+        <var name="equal_client_sizes">True</var>
+    </dataset>
+    <localclients learning_rate="0.05" momentum="0.0" weight_decay="0.0"
+                  optimizer="Adam" platform="cuda:0">10</localclients>
+
+    <method name="FedBopResNet18" type="FedBop" platform="cuda:0">
+        <arch type="ResNetBinAct">
+            <var name="NumberOfOutputNodes">100</var>
+            <var name="NumberOfChannels">3</var>
+            <var name="InputDataLen">32</var>
+            <var name="ResNetDepth">18</var>
+            <var name="ResNetMode">0</var>
+        </arch>
+        <var name="epochs_num">1</var>
+        <var name="args">decay_factor=0.1,decay_rounds=200,sync_rounds=200,gamma=0.0001,tau=0.00000001,stats_lr=0.01,contributors_percent=100,diag=0</var>
+    </method>
+
+    <method name="BiPruneFLResNet18" type="BiPruneFL_GN" platform="cuda:0">
+        <arch type="ResNetBinAct">
+            <var name="NumberOfOutputNodes">100</var>
+            <var name="NumberOfChannels">3</var>
+            <var name="InputDataLen">32</var>
+            <var name="ResNetDepth">18</var>
+            <var name="ResNetMode">3</var>
+        </arch>
+        <var name="epochs_num">1</var>
+        <var name="args">pruning_ratio=0.7,score_lr=0.5,compression=stc,stc_keep_ratio=0.01,client_grad_steps=1,fast_local_step=1,activation_ste=bireal,recycle_rate=0.2,contributors_percent=100,diag=0</var>
+    </method>
+
+    <method name="BiFLBiMLResNet18" type="BiFLBiML" platform="cuda:0">
+        <arch type="ResNetBinAct">
+            <var name="NumberOfOutputNodes">100</var>
+            <var name="NumberOfChannels">3</var>
+            <var name="InputDataLen">32</var>
+            <var name="ResNetDepth">18</var>
+            <var name="ResNetMode">2</var>
+        </arch>
+        <var name="epochs_num">1</var>
+        <var name="args">alpha=1.75,contributors_percent=100,lr1_round=30,lr1=0.02,lr2_round=60,lr2=0.01,diagnostics=1,diagnostic_every=10</var>
+    </method>
+
+    <method name="FedVoteResNet18" type="FedVote" platform="cuda:0">
+        <arch type="ResNetBinAct">
+            <var name="NumberOfOutputNodes">100</var>
+            <var name="NumberOfChannels">3</var>
+            <var name="InputDataLen">32</var>
+            <var name="ResNetDepth">18</var>
+            <var name="ResNetMode">1</var>
+            <var name="FedVoteK">1.5</var>
+        </arch>
+        <var name="epochs_num">1</var>
+        <var name="args">normalization_scale=1.5,p_min=0.001,contributors_percent=100,diagnostics=1,diagnostic_every=25</var>
+    </method>
+
+    <report save_log="True">
+        <fig name="accuracy_iid_cifar100_n" x_axis="round" y_axis="EvaluationAccuracy"
+             methods="FedBopResNet18,BiPruneFLResNet18,BiFLBiMLResNet18,FedVoteResNet18"
+             labels="FedBop,BiPruneFL,BiFL-BiML,FedVote"/>
+    </report>
+</fedwork_cfg>

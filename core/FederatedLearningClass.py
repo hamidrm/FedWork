@@ -62,6 +62,12 @@ class FederatedLearningClass(ABC):
         else:
             return None
           
+    def before_global_evaluation(self, model):
+        pass
+
+    def after_global_evaluation(self, model):
+        pass
+
     def pack_client_model(self, raw_model, global_model, id):
         return raw_model
 

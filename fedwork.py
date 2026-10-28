@@ -60,49 +60,107 @@ class fedwork:
         dir_path = os.path.join(output_dir, "dataset")
         self.fl_context["dataset_path"] = dir_path
 
-        # 1) read config vars first
+        # 1) Read dataset configuration.
         vars = dataset_cfg["var"]
-        non_iid_level   = self.get_var(vars, "non_iid_level", float, 0.5)
-        non_iid_alpha   = self.get_var(vars, "alpha", float, sys.float_info.min)
-        train_batch_size= self.get_var(vars, "train_batch_size", int, 128)
-        test_batch_size = self.get_var(vars, "test_batch_size", int, 128)
+        non_iid_level    = self.get_var(vars, "non_iid_level", float, 0.5)
+        non_iid_alpha    = self.get_var(vars, "alpha", float, sys.float_info.min)
+        train_batch_size = self.get_var(vars, "train_batch_size", int, 128)
+        test_batch_size  = self.get_var(vars, "test_batch_size", int, 128)
 
-        num_workers = self.get_var(vars, "num_workers", int, 0)
-        save_graph      = self.get_var(vars, "save_graph", bool, True)
-        enclose_info    = self.get_var(vars, "enclosed_info", bool, False)
-        use_dirichlet   = self.get_var(vars, "dirichlet", bool, False)
+        num_workers       = self.get_var(vars, "num_workers", int, 0)
+        save_graph        = self.get_var(vars, "save_graph", bool, True)
+        enclose_info      = self.get_var(vars, "enclosed_info", bool, False)
+        use_dirichlet     = self.get_var(vars, "dirichlet", bool, False)
+        equal_client_sizes = self.get_var(vars, "equal_client_sizes", bool, False)
+
         if non_iid_alpha != sys.float_info.min:
             non_iid_level = non_iid_alpha
 
-        # 2) try to load cached partitions
-        partitions = []
-        i = 0
-        while True:
-            fpath = os.path.join(dir_path, f"dataset_node_{i}.ds")
-            if not os.path.exists(fpath): break
-            with open(fpath, 'rb') as f:
-                partitions.append(pickle.load(f))
-            i += 1
+        # Cache metadata is deliberately partition-specific. This prevents an
+        # old IID/Dirichlet/alpha/seed partition from being silently reused.
+        expected_meta = {
+            "partition_version": 2,
+            "type": dataset_cfg["@type"],
+            "num_nodes": int(num_of_nodes),
+            "dirichlet": bool(use_dirichlet),
+            "alpha": float(non_iid_level),
+            "equal_client_sizes": bool(equal_client_sizes),
+            "seed": int(seed),
+        }
 
-        if partitions:
+        os.makedirs(dir_path, exist_ok=True)
+        meta_path = os.path.join(dir_path, "dataset_meta.pkl")
+
+        # 2) Reuse cached partitions only if their metadata exactly matches.
+        cache_valid = False
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, "rb") as f:
+                    cached_meta = pickle.load(f)
+                cache_valid = (cached_meta == expected_meta)
+            except Exception:
+                cache_valid = False
+
+        partitions = []
+        if cache_valid:
+            for i in range(num_of_nodes):
+                fpath = os.path.join(dir_path, f"dataset_node_{i}.ds")
+                if not os.path.exists(fpath):
+                    cache_valid = False
+                    partitions = []
+                    break
+                with open(fpath, "rb") as f:
+                    partitions.append(pickle.load(f))
+
+        if cache_valid and len(partitions) == num_of_nodes:
+            util.logger.log_info(
+                f"Reusing dataset partitions: dirichlet={use_dirichlet}, "
+                f"alpha={non_iid_level}, equal_client_sizes={equal_client_sizes}, "
+                f"seed={seed}, sizes={[len(p) for p in partitions]}"
+            )
             dataset_train_list, dataset_test = DS.build_loaders_from_partitions(
-                partitions, dataset_cfg["@type"], train_batch_size, test_batch_size, base_seed=seed, num_workers=num_workers
+                partitions,
+                dataset_cfg["@type"],
+                train_batch_size,
+                test_batch_size,
+                base_seed=seed,
+                num_workers=num_workers,
             )
             self.fl_context["dataset_train_list"] = dataset_train_list
             self.fl_context["dataset_train_test"] = dataset_test
             return dataset_train_list, dataset_test
 
-        # 3) build fresh, save partitions
+        # 3) Build a fresh partition. Keyword arguments are intentional here so
+        # adding dataset options does not silently shift positional arguments.
         dataset_train_list, dataset_test, partitions = DS.create_datasets(
-            num_of_nodes, dataset_cfg["@type"], non_iid_level,
-            train_batch_size, test_batch_size, use_dirichlet, num_workers, save_graph, enclose_info, dir_path, seed
+            train_ds_num=num_of_nodes,
+            ds_type=dataset_cfg["@type"],
+            non_iid_level_alpha=non_iid_level,
+            train_batch_size=train_batch_size,
+            test_batch_size=test_batch_size,
+            use_dirichlet=use_dirichlet,
+            equal_client_sizes=equal_client_sizes,
+            num_workers=num_workers,
+            save_graph=save_graph,
+            add_info_to_figure=enclose_info,
+            path=dir_path,
+            base_seed=seed,
         )
-        os.makedirs(dir_path, exist_ok=True)
+
+        # Remove stale per-client cache files before writing the new partition.
+        for fname in os.listdir(dir_path):
+            if fname.startswith("dataset_node_") and fname.endswith(".ds"):
+                try:
+                    os.remove(os.path.join(dir_path, fname))
+                except OSError:
+                    pass
+
         for i, idxs in enumerate(partitions):
-            with open(os.path.join(dir_path, f"dataset_node_{i}.ds"), 'wb') as f:
+            with open(os.path.join(dir_path, f"dataset_node_{i}.ds"), "wb") as f:
                 pickle.dump(idxs, f)
-        with open(os.path.join(dir_path, "dataset_meta.pkl"), "wb") as f:
-            pickle.dump({"type": dataset_cfg["@type"]}, f)
+
+        with open(meta_path, "wb") as f:
+            pickle.dump(expected_meta, f)
 
         self.fl_context["dataset_train_list"] = dataset_train_list
         self.fl_context["dataset_train_test"] = dataset_test

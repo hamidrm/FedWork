@@ -1,0 +1,16 @@
+threshold_pct,comparison,both_reached,FedBop_total_GB,baseline_total_GB,baseline_over_FedBop_cost_ratio,FedBop_saving_pct
+60.0,FedBop vs FedVote,1,2.02183357,12.81852703,6.340050546296943,84.22725508735772
+60.0,FedBop vs BiFL-BiML,0,2.02183357,,,
+60.0,FedBop vs BiPruneFL,0,2.02183357,,,
+65.0,FedBop vs FedVote,1,2.051146665,20.30546817,9.899569112479824,89.89855024357215
+65.0,FedBop vs BiFL-BiML,0,2.051146665,,,
+65.0,FedBop vs BiPruneFL,0,2.051146665,,,
+70.0,FedBop vs FedVote,1,2.490411751,39.55760253,15.883960760350588,93.7043410325201
+70.0,FedBop vs BiFL-BiML,0,2.490411751,,,
+70.0,FedBop vs BiPruneFL,0,2.490411751,,,
+72.0,FedBop vs FedVote,1,2.523186369,49.18366971,19.492682076232317,94.86986964600776
+72.0,FedBop vs BiFL-BiML,0,2.523186369,,,
+72.0,FedBop vs BiPruneFL,0,2.523186369,,,
+75.0,FedBop vs FedVote,0,,83.94446786,,
+75.0,FedBop vs BiFL-BiML,0,,,,
+75.0,FedBop vs BiPruneFL,0,,,,

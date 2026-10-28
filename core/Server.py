@@ -8,6 +8,7 @@ from utils.consts import *
 from core.FederatedLearningClass import *
 from utils.common import *
 import copy
+import pickle
 from utils.logger import *
 from utils.profiler import *
 
@@ -32,6 +33,7 @@ class Server:
         self.received_models_id = []
         self.model_list = []
         self.ServerTotalRecvBytesExp = 0
+        self.ServerTotalSentBytesExp = 0
         self.fl_method = fl_method
         self.round_number = 0
         self.experimentMode = experimentMode
@@ -144,8 +146,28 @@ class Server:
     def update_clients(self):
         global_model_pack = self.fl_method.pack_server_model(self.global_model.state_dict())
         if self.experimentMode:
-            for client in self.fl_method.select_clients_to_update(self.clients):
+            selected_clients = self.fl_method.select_clients_to_update(self.clients)
+
+            # In experiment mode no real socket is used, so historically only
+            # uplink bytes were profiled.  Count the exact serialized application
+            # payload here using the same pickle representation used by the real
+            # communication path.  The counter is server-egress/unicast-equivalent:
+            # one serialized payload per recipient.
+            serialized_len = len(pickle.dumps(global_model_pack))
+            for client in selected_clients:
+                self.ServerTotalSentBytesExp += serialized_len
                 self.clients[client].set_model(global_model_pack)
+
+            profiler.save_variable(
+                MEASURE_PROBE_TOTAL_SENT_BYTES,
+                self.ServerTotalSentBytesExp,
+                self.round_number,
+            )
+            profiler.save_variable(
+                MEASURE_PROBE_DATA_SENT_BYTES,
+                self.ServerTotalSentBytesExp,
+                self.round_number,
+            )
         else:
             for client in self.fl_method.select_clients_to_update(self.server_comm.clients):
                 self.server_comm.send_data_pkg(client, global_model_pack)
@@ -231,35 +253,42 @@ class Server:
         profiler.save_variable(str(var_name), var_value, self.round_number)
 
     def evaluate_model(self):
-        self.global_model.eval()
-        logger.log_debug(f"Global model evaluation is started...")
-        profiler.start_measuring(MEASURE_PROBE_EVAL_TIME)
-        running_loss = 0
-        running_corrects = 0
-        with torch.no_grad():
-            for inputs, labels in self.test_ds:
+        if hasattr(self.fl_method, "before_global_evaluation"):
+            self.fl_method.before_global_evaluation(self.global_model)
 
-                inputs = inputs.to(self.executer)
-                labels = labels.to(self.executer)
+        try:
+            self.global_model.eval()
+            logger.log_debug(f"Global model evaluation is started...")
+            profiler.start_measuring(MEASURE_PROBE_EVAL_TIME)
+            running_loss = 0
+            running_corrects = 0
+            with torch.no_grad():
+                for inputs, labels in self.test_ds:
 
-                outputs = self.global_model(inputs)
-                _, preds = torch.max(outputs, 1)
+                    inputs = inputs.to(self.executer)
+                    labels = labels.to(self.executer)
 
-                if self.criterion is not None:
-                    loss = self.criterion(outputs, labels).item()
-                else:
-                    loss = 0
+                    outputs = self.global_model(inputs)
+                    _, preds = torch.max(outputs, 1)
 
-                running_loss += loss * inputs.size(0)
-                running_corrects += torch.sum(preds == labels.data)
+                    if self.criterion is not None:
+                        loss = self.criterion(outputs, labels).item()
+                    else:
+                        loss = 0
 
-        eval_loss = running_loss / len(self.test_ds.dataset)                      
-        eval_accuracy = running_corrects / len(self.test_ds.dataset)
-        profiler.stop_measuring(MEASURE_PROBE_EVAL_TIME, self.round_number)
-        profiler.save_variable(MEASURE_PROBE_EVAL_ACC, eval_accuracy, self.round_number)
-        profiler.save_variable(MEASURE_PROBE_EVAL_LOSS, eval_loss, self.round_number)
-        logger.log_debug(f"Global model evaluation is done...")
-        return eval_loss, eval_accuracy
+                    running_loss += loss * inputs.size(0)
+                    running_corrects += torch.sum(preds == labels.data)
+
+            eval_loss = running_loss / len(self.test_ds.dataset)                      
+            eval_accuracy = running_corrects / len(self.test_ds.dataset)
+            profiler.stop_measuring(MEASURE_PROBE_EVAL_TIME, self.round_number)
+            profiler.save_variable(MEASURE_PROBE_EVAL_ACC, eval_accuracy, self.round_number)
+            profiler.save_variable(MEASURE_PROBE_EVAL_LOSS, eval_loss, self.round_number)
+            logger.log_debug(f"Global model evaluation is done...")
+            return eval_loss, eval_accuracy
+        finally:
+            if hasattr(self.fl_method, "after_global_evaluation"):
+                self.fl_method.after_global_evaluation(self.global_model)
     
     
     def EpochDone(self, name, id, epoch_info):

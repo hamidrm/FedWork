@@ -1,10 +1,72 @@
 import math
+import pickle
 import torch
 from core.FederatedLearningClass import *
 from utils.logger import *
 
 
 class FedBop(FederatedLearningClass):
+    """
+    Final communication candidate for the harsh K=10, Dirichlet alpha=0.1 setup.
+    It preserves the successful FedBop binary/optimizer arithmetic and global-BN
+    recalibration, synchronizes Bop momentum every 200 rounds by default, and
+    quantizes only the WIRE representation of BN beta and calibration moments.
+
+    Controlled FedBop12 variant for testing Bop-consistent server event annealing while keeping the client rule, aggregation evidence, projection, sync cadence, and gamma schedule otherwise unchanged.
+
+    Binary path
+    -----------
+    1) Each client trains binary weights with ordinary Bop.
+    2) During a local round, each coordinate records whether its REALIZED binary
+       state is opposite to the round-start global state. The client transmits one
+       sparse event iff that opposite state occupied a strict majority of local
+       minibatches.
+    3) The server feeds client event support into one persistent Bop-style EMA and
+       flips the global binary coordinate when the server Bop condition fires.
+    4) After receiving the server-selected binary state, a client keeps its private
+       Bop momentum unless that momentum would immediately violate the accepted
+       global state. If it violates it, we apply the exact minimum-Euclidean-change
+       projection onto the Bop-feasible half-space.
+
+    There is deliberately NO reflection, NO canonical +/-tau reset, and NO
+    phase-dependent rule switching.
+
+    In this variant, client optimizer-state synchronization is deliberately
+    DECOUPLED from gamma decay so that the two effects can be measured
+    independently. Gamma still follows decay_rounds. Separately, every
+    sync_rounds rounds, clients transmit a low-bit ternary snapshot of their
+    private Bop EMA; the server averages these snapshots and broadcasts one shared
+    low-bit EMA. The server's own event-EMA is NOT overwritten.
+
+    If a synchronization round is also a gamma-decay round, clients train and the
+    server aggregates with the OLD gamma; the server then forms the client-EMA
+    consensus, decays gamma, and broadcasts the shared momentum together with the
+    NEW gamma for the next local round.
+
+    Server event annealing
+    ----------------------
+    The original FedBop12 recalibrated event_scale after every gamma decay so that
+    the *effective* current-round event injection stayed constant. This variant
+    deliberately removes that compensation while keeping the original phase-1
+    calibration. A fixed pseudo-gradient scale is calibrated once using the
+    initial gamma. Therefore, as gamma decays, server memory retention increases
+    and the effective strength of fresh event evidence decreases in the same
+    Bop-like direction:
+
+        A_{r+1} = beta_K A_r + (tau*c/b) * event_gain
+        event_gain = (1-beta_K) / (1-beta_ref_K)
+
+    where beta_ref_K uses the initial gamma. Thus event_gain=1 in the first
+    phase, approximately 0.1 after one 10x gamma decay, approximately 0.01 after
+    two, etc. No new training hyperparameter is introduced.
+
+    Real-valued path
+    ----------------
+    Non-binary trainable parameters (e.g. BN beta) are optimized only by Adam,
+    matching the Bop setup. The framework's outer optimizer step is suppressed by
+    returning False from after_backward(), so these parameters are not accidentally
+    updated a second time by SGD. Adam moments persist across federated rounds.
+    """
 
     def __init__(self, method_name, fl_context, method_args):
         super().__init__(method_name, fl_context, method_args)
@@ -12,239 +74,471 @@ class FedBop(FederatedLearningClass):
         self.contributors_percent = (
             float(self.get_arg(int, "contributors_percent", 100)) / 100.0
         )
+
+        # Bop hyperparameters. One gamma is used consistently on client and server,
+        # with the same decay schedule as the existing FedBop experiments.
         self.gamma = self.get_arg(float, "gamma", 1e-4)
+        # Immutable reference gamma used only to calibrate the server pseudo-gradient
+        # scale once. Unlike FedBop12, we do NOT re-normalize fresh evidence after
+        # later gamma decays.
+        self.initial_gamma = float(self.gamma)
         self.tau = self.get_arg(float, "tau", 1e-8)
         self.decay_factor = self.get_arg(float, "decay_factor", 1e-1)
-        self.decay_rounds = self.get_arg(int, "decay_rounds", 600)
-        self.rho = self.get_arg(float, "rho", 1.0)
+        self.decay_rounds = self.get_arg(int, "decay_rounds", 200)
 
-        self.m_buffers = None
-        self.e_buffers = None
-        self.round_global_weights = None
-        self.has_local_update = False
+        # Client-momentum consensus cadence is independent of gamma decay.
+        # Final-candidate severe non-IID schedule (for num_of_rounds=700):
+        #   sync at 200,400,600
+        #   decay at 200,400,600
+        # (No sync is sent at the terminal round because _is_sync_round requires
+        #  r < num_of_rounds.)
+        self.sync_rounds = self.get_arg(int, "sync_rounds", 200)
 
+        # Low-bit client-momentum consensus codec.
+        # Five ternary symbols fit in one uint8 (3**5=243), plus one FP32 scale
+        # per binary layer. These are codec parameters, not training policies.
+        self.ternary_deadzone_mult = self.get_arg(float, "ternary_deadzone_mult", 0.5)
+        self.ternary_min_scale_mult = self.get_arg(float, "ternary_min_scale_mult", 1e-3)
+
+        # Adam for real-valued trainable parameters (BN beta in BinaryNet).
         self.stats_lr = self.get_arg(float, "stats_lr", 1e-2)
-        self.sync_stats = bool(self.get_arg(int, "sync_stats", 1))
-        self.reset_stats_optimizer_on_sync = bool(
-            self.get_arg(int, "reset_stats_optimizer_on_sync", 1)
-        )
         self.stats_optimizer = None
         self.stats_param_ids = None
 
-        # Diagnostics. 1 = enabled. Per-layer logs are emitted every N local rounds.
-        self.diag = self.get_arg(int, "diag", 1)
-        self.diag_layer_every = self.get_arg(int, "diag_layer_every", 10)
+        # ------------------------------------------------------------------
+        # Communication codecs for the real-valued inference state.
+        # ------------------------------------------------------------------
+        # Only the WIRE representation is quantized. Clients/server reconstruct
+        # FP32 tensors before optimization/inference. Supported modes:
+        #   fp32 : reference path
+        #   fp16 : conservative 16-bit path (default)
+        #   int8 : per-tensor symmetric INT8 + one FP32 scale
+        #
+        # BN beta is sent as the locally Adam-optimized ABSOLUTE beta on the
+        # uplink, then averaged on the server. Downlink sends the aggregated
+        # absolute beta. This exactly matches FedAvg-style model aggregation in
+        # fp32 mode and avoids any ambiguity from the client's quantized round-
+        # start copy.
+        # BN calibration sends per-client first/second RAW MOMENTS (mean, E[x^2])
+        # plus exact counts; this is algebraically equivalent to (sum, sumsq, n)
+        # but is numerically safer for FP16 because raw sums can overflow.
+        self.beta_comm_mode = self.get_arg(str, "beta_comm_mode", "fp16").lower()
+        self.bn_stats_comm_mode = self.get_arg(str, "bn_stats_comm_mode", "fp16").lower()
+        self._valid_comm_modes = ("fp32", "fp16", "int8")
+        if self.beta_comm_mode not in self._valid_comm_modes:
+            raise ValueError(
+                f"beta_comm_mode must be one of {self._valid_comm_modes}; "
+                f"got {self.beta_comm_mode!r}"
+            )
+        if self.bn_stats_comm_mode not in self._valid_comm_modes:
+            raise ValueError(
+                f"bn_stats_comm_mode must be one of {self._valid_comm_modes}; "
+                f"got {self.bn_stats_comm_mode!r}"
+            )
 
-        self._diag_client_round = 0
-        self._diag_steps = 0
-        self._diag_flip_events = {}
-        self._diag_grad_abs_sum = {}
-        self._diag_m_abs_sum = {}
-        self._diag_layer_steps = {}
+        # Current BinaryNet has fixed BN gamma=1 and client-private running stats.
+        # They are not optimizer state and are not needed on the ordinary model
+        # uplink/downlink once evaluation BN is recalibrated from global-model
+        # activation moments. Keep a switch only for compatibility/debugging.
+        self.omit_legacy_bn_buffers = self.get_arg(int, "omit_legacy_bn_buffers", 1)
 
-        self._diag_server_pack_round = None
-        self._diag_server_pack_calls = 0
+        # Client-private Bop state.
+        self.m_buffers = None
+        self.round_global_weights = None
+        self.temporal_opposite_counts = {}
+        self.temporal_state_steps = {}
+        self.round_local_vote_masks = {}
+        self.has_local_update = False
 
-        # Cross-round diagnostics only. They do not affect optimization.
-        self._diag_prev_endpoint_masks = {}
-        self._diag_prev_server_flip_masks = {}
-        self.diag_pairwise_max_clients = self.get_arg(
-            int, "diag_pairwise_max_clients", 12
-        )
-
+        # Server-private Bop state.
         self.server_m_buffers = {}
 
+        # Server -> client binary-wire state.  The first broadcast is an
+        # absolute 1-bit snapshot.  Every later broadcast is encoded as the
+        # sparse set of coordinates whose authoritative GLOBAL binary state
+        # flipped since the previous broadcast.  Those indices use the exact
+        # same Gap+Rice codec as the client uplink.  Keeping this state private
+        # to the server changes only the wire representation; it never enters
+        # Bop optimization or aggregation.
+        self._server_downlink_prev_binary = {}
+
+        # Prepared on an independent momentum-sync round after receiving all
+        # client momentum sidecars. On rounds that are also decay boundaries it is
+        # broadcast together with the decayed gamma; otherwise gamma is unchanged.
+        # This is CLIENT-EMA consensus only; server_m_buffers retains its own
+        # event-history semantics.
+        self.pending_shared_m_ternary = {}
+        self.pending_sync_round = -1
+
+        # Round/gamma bookkeeping.
+        self._scheduled_local_round = 1
+        self._diag_client_round = 0
+        self._last_decay_round = None
+
+        # Lightweight diagnostics only; they do not affect optimization.
+        self.diag = self.get_arg(int, "diag", 1)
+        self.diag_layer_every = self.get_arg(int, "diag_layer_every", 20)
+        self._diag_steps = 0
+        self._diag_raw_flips = {}
+        self._diag_grad_abs = {}
+
+        # Extended server-side diagnostics. These states NEVER participate in
+        # optimization or model updates; they only compare sparse event/flip sets
+        # across clients and consecutive rounds.
+        self.diag_extended = self.get_arg(int, "diag_extended", 1)
+        self._diag_prev_client_events = {}   # (client_id, layer) -> (round, sorted idx)
+        self._diag_prev_server_flips = {}    # layer -> (round, bool mask)
+
+        # ------------------------------------------------------------------
+        # Global-BN recalibration (evaluation-side only)
+        # ------------------------------------------------------------------
+        # The state-swap diagnostic showed that the dominant late-round
+        # sawtooth comes from server BN running-stat mismatch, not from the
+        # sparse global binary flips.  To test the strongest remedy with ONE
+        # run, the server recalibrates BN immediately before every global
+        # evaluation using the CURRENT fixed global model and a tiny balanced
+        # calibration slice: by default one local training minibatch/client.
+        #
+        # This does NOT touch W, beta, Bop EMA, Adam state, event aggregation,
+        # sync cadence, or gamma decay.  It only replaces the server's
+        # evaluation running_mean/running_var.
+        self.bn_recalibrate = self.get_arg(int, "bn_recalibrate", 1)
+        self.bn_calib_batches_per_client = self.get_arg(
+            int, "bn_calib_batches_per_client", 1
+        )
+        self.bn_calib_unbiased_var = self.get_arg(int, "bn_calib_unbiased_var", 1)
+        self._server_eval_wrapped = False
+        self._original_server_evaluate_model = None
+
     def get_name(self):
-        return "FedBop"
+        return "FedBopFinalQuant200"
 
     def init_method(self, server=None):
         if server is not None:
             self.server = server
+            self._install_bn_recalibrated_evaluation(server)
+
+    # -------------------------------------------------------------------------
+    # Server-side global BN recalibration
+    # -------------------------------------------------------------------------
+
+    def _is_center_bn_module(self, module):
+        """Recognize BinaryNet CenterOnlyBatchNorm without importing arch code."""
+        return (
+            hasattr(module, "running_mean")
+            and hasattr(module, "running_var")
+            and hasattr(module, "num_batches_tracked")
+            and hasattr(module, "momentum")
+            and torch.is_tensor(getattr(module, "running_mean", None))
+            and torch.is_tensor(getattr(module, "running_var", None))
+            and "batchnorm" in module.__class__.__name__.lower()
+        )
+
+    @torch.no_grad()
+    def _recalibrate_server_bn(self):
+        """Re-estimate BN moments on the CURRENT fixed global model.
+
+        Simulator implementation of the distributed protocol:
+          1) every client forwards a tiny TRAIN calibration slice through the
+             same fixed current global (W,beta),
+          2) it forms per-BN-channel (count, mean, E[x^2]),
+          3) mean/E[x^2] are quantized according to bn_stats_comm_mode,
+          4) the server decodes and count-weights the moments,
+          5) the resulting global mean/variance are installed for evaluation.
+
+        Raw data and activation maps are never part of the conceptual wire
+        payload. In this in-process FedWork experiment the server can access
+        client loaders directly, so quantize/dequantize is simulated explicitly
+        to measure the same numerical effect as distributed communication.
+        """
+        if not int(self.bn_recalibrate):
+            return
+        if int(self.bn_calib_batches_per_client) <= 0:
+            return
+        if not hasattr(self, "server") or self.server is None:
+            return
+
+        server = self.server
+        clients = getattr(server, "clients", None)
+        if not clients:
+            return
+
+        model = server.global_model
+        device = getattr(server, "executer", "cpu")
+
+        bn_modules = []
+        for name, module in model.named_modules():
+            if self._is_center_bn_module(module):
+                bn_modules.append((name, module))
+        if not bn_modules:
+            return
+
+        training_flags = {id(m): bool(m.training) for m in model.modules()}
+        old_momenta = {name: module.momentum for name, module in bn_modules}
+
+        # Hooks write to the accumulator belonging to whichever client is being
+        # forwarded right now. This lets us quantize each client's sufficient
+        # statistics BEFORE server aggregation, matching a real FL uplink.
+        active_accum = {}
+        handles = []
+
+        def make_hook(layer_name):
+            def hook(_module, inputs):
+                if not inputs:
+                    return
+                x = inputs[0].detach()
+                if x.dim() < 2:
+                    return
+                reduce_dims = tuple(d for d in range(x.dim()) if d != 1)
+                xd = x.to(dtype=torch.float64)
+                layer_sum = xd.sum(dim=reduce_dims).cpu()
+                layer_sumsq = (xd * xd).sum(dim=reduce_dims).cpu()
+                count = int(x.numel() // x.shape[1])
+
+                st = active_accum.get(layer_name)
+                if st is None:
+                    active_accum[layer_name] = {
+                        "sum": layer_sum,
+                        "sumsq": layer_sumsq,
+                        "count": count,
+                    }
+                else:
+                    st["sum"].add_(layer_sum)
+                    st["sumsq"].add_(layer_sumsq)
+                    st["count"] += count
+            return hook
+
+        before_mean = 0.0
+        before_var = 0.0
+        before_n = 0
+        for name, module in bn_modules:
+            before_mean += float(module.running_mean.detach().abs().sum().item())
+            before_var += float(module.running_var.detach().abs().sum().item())
+            before_n += int(module.running_mean.numel())
+            handles.append(module.register_forward_pre_hook(make_hook(name)))
+
+        # Server-side decoded pooled moment accumulators.
+        pooled = {}
+        total_batches = 0
+        total_examples = 0
+        total_stats_payload_bytes = 0
+        contributing_clients = 0
+
+        try:
+            model.eval()
+            for _, module in bn_modules:
+                module.train(True)
+
+            for client_name in sorted(clients.keys()):
+                client = clients[client_name]
+                loader = getattr(client, "dataset", None)
+                if loader is None:
+                    continue
+
+                active_accum.clear()
+                used = 0
+                client_examples = 0
+                for batch in loader:
+                    if used >= int(self.bn_calib_batches_per_client):
+                        break
+                    if not isinstance(batch, (tuple, list)) or len(batch) < 1:
+                        continue
+                    inputs = batch[0].to(device)
+                    try:
+                        labels = batch[1].to(device) if len(batch) > 1 else None
+                        if labels is not None:
+                            inputs, _ = self.client_training_get_data(inputs, labels)
+                    except Exception:
+                        pass
+                    model(inputs)
+                    client_examples += int(inputs.shape[0])
+                    total_examples += int(inputs.shape[0])
+                    total_batches += 1
+                    used += 1
+
+                if used <= 0:
+                    continue
+                contributing_clients += 1
+
+                # Client -> server calibration payload. We transmit normalized
+                # moments rather than raw sum/sumsq so FP16 cannot overflow just
+                # because spatial count is large. The server reconstructs the
+                # exact same pooled moments by count weighting.
+                for layer_name, st in active_accum.items():
+                    count = int(st["count"])
+                    if count <= 0:
+                        continue
+                    mean = (st["sum"] / float(count)).to(torch.float32)
+                    second = (st["sumsq"] / float(count)).to(torch.float32)
+
+                    mean_entry, mean_bytes = self._encode_wire_tensor(
+                        mean, self.bn_stats_comm_mode
+                    )
+                    second_entry, second_bytes = self._encode_wire_tensor(
+                        second, self.bn_stats_comm_mode
+                    )
+                    # One exact int64 count/layer.
+                    total_stats_payload_bytes += int(mean_bytes + second_bytes + 8)
+
+                    mean_dec = self._decode_wire_tensor(
+                        mean_entry, device="cpu", dtype=torch.float64
+                    )
+                    second_dec = self._decode_wire_tensor(
+                        second_entry, device="cpu", dtype=torch.float64
+                    )
+
+                    pst = pooled.get(layer_name)
+                    if pst is None:
+                        pooled[layer_name] = {
+                            "weighted_mean": mean_dec * float(count),
+                            "weighted_second": second_dec * float(count),
+                            "count": count,
+                        }
+                    else:
+                        pst["weighted_mean"].add_(mean_dec * float(count))
+                        pst["weighted_second"].add_(second_dec * float(count))
+                        pst["count"] += count
+        finally:
+            for h in handles:
+                try:
+                    h.remove()
+                except Exception:
+                    pass
+
+        delta_mean_sum = 0.0
+        delta_var_sum = 0.0
+        delta_n = 0
+        calibrated_layers = 0
+        for name, module in bn_modules:
+            st = pooled.get(name)
+            if st is None or int(st["count"]) <= 0:
+                continue
+
+            count = int(st["count"])
+            mean64 = st["weighted_mean"] / float(count)
+            second64 = st["weighted_second"] / float(count)
+            var64 = second64 - mean64 * mean64
+            var64.clamp_(min=0.0)
+            if int(self.bn_calib_unbiased_var) and count > 1:
+                var64.mul_(float(count) / float(count - 1))
+
+            mean_new = mean64.to(
+                device=module.running_mean.device,
+                dtype=module.running_mean.dtype,
+            )
+            var_new = var64.to(
+                device=module.running_var.device,
+                dtype=module.running_var.dtype,
+            )
+
+            delta_mean_sum += float(
+                (module.running_mean.detach() - mean_new).abs().sum().item()
+            )
+            delta_var_sum += float(
+                (module.running_var.detach() - var_new).abs().sum().item()
+            )
+            delta_n += int(mean_new.numel())
+
+            module.running_mean.copy_(mean_new)
+            module.running_var.copy_(var_new)
+            try:
+                module.num_batches_tracked.fill_(int(total_batches))
+            except Exception:
+                pass
+            calibrated_layers += 1
+
+        for name, module in bn_modules:
+            module.momentum = old_momenta[name]
+        for m in model.modules():
+            m.train(training_flags[id(m)])
+
+        if self.diag:
+            try:
+                round_number = int(server.round_number)
+            except Exception:
+                round_number = -1
+            per_client_kib = (
+                total_stats_payload_bytes / max(1, contributing_clients) / 1024.0
+            )
+            self._log(
+                f"BN_GLOBAL_RECALIB round={round_number} "
+                f"layers={calibrated_layers} clients={contributing_clients} "
+                f"batches={total_batches} examples={total_examples} "
+                f"batches_per_client={int(self.bn_calib_batches_per_client)} "
+                f"stats_comm={self.bn_stats_comm_mode} "
+                f"stats_uplink_total_KiB={total_stats_payload_bytes/1024.0:.3f} "
+                f"stats_uplink_per_client_KiB={per_client_kib:.3f} "
+                f"mean_abs_delta_running_mean={delta_mean_sum/max(1,delta_n):.6e} "
+                f"mean_abs_delta_running_var={delta_var_sum/max(1,delta_n):.6e} "
+                f"moment_repr=mean_second fixed_global_model=1 test_data_used=0"
+            )
+
+    def _install_bn_recalibrated_evaluation(self, server):
+        """Wrap Server.evaluate_model once; training/aggregation are untouched."""
+        if self._server_eval_wrapped:
+            return
+        original = server.evaluate_model
+        self._original_server_evaluate_model = original
+
+        def evaluate_with_global_bn_recalibration(*args, **kwargs):
+            self._recalibrate_server_bn()
+            return original(*args, **kwargs)
+
+        server.evaluate_model = evaluate_with_global_bn_recalibration
+        self._server_eval_wrapped = True
+        if self.diag:
+            self._log(
+                "BN_GLOBAL_RECALIB_INSTALL enabled=1 "
+                f"batches_per_client={int(self.bn_calib_batches_per_client)} "
+                f"beta_comm={self.beta_comm_mode} stats_comm={self.bn_stats_comm_mode} "
+                f"sync_every={self.sync_rounds} decay_every={self.decay_rounds}"
+            )
 
     def select_clients_to_train(self, all_clients):
         if self.contributors_percent != 1.0:
-            return self.select_random_clients(
-                all_clients,
-                self.contributors_percent,
-            )
-
+            return self.select_random_clients(all_clients, self.contributors_percent)
         return super().select_clients_to_train(all_clients)
 
-    def _diag_log(self, message):
+    # -------------------------------------------------------------------------
+    # Helpers
+    # -------------------------------------------------------------------------
+
+    def _log(self, message):
         if not self.diag:
             return
-
-        text = f"[FedBopDiag] {message}"
-
+        text = f"[FedBopFinalQuant200] {message}"
         try:
             logger.log_info(text)
-            return
         except Exception:
-            pass
+            try:
+                logger.log_debug(text)
+            except Exception:
+                print(text, flush=True)
 
-        try:
-            logger.log_debug(text)
-            return
-        except Exception:
-            pass
-
-        print(text, flush=True)
-
-    def _diag_layer_log_enabled(self, round_number):
+    def _layer_log_enabled(self, round_number):
         if not self.diag:
             return False
-
         if round_number <= 3:
             return True
-
-        if self.diag_layer_every > 0 and round_number % self.diag_layer_every == 0:
-            return True
-
-        if self.decay_rounds > 0:
-            d = round_number % self.decay_rounds
-            if d in (self.decay_rounds - 1, 0, 1):
-                return True
-
-        return False
-
-    def _diag_reset_local_round(self):
-        self._diag_steps = 0
-        self._diag_flip_events = {}
-        self._diag_grad_abs_sum = {}
-        self._diag_m_abs_sum = {}
-        self._diag_layer_steps = {}
-
-    def _diag_pairwise_jaccard_from_pattern_hist(
-        self,
-        pattern_hist,
-        client_counts,
-        k_clients,
-    ):
-        if (
-            pattern_hist is None
-            or k_clients < 2
-            or len(client_counts) != k_clients
-        ):
-            return None
-
-        codes = torch.arange(
-            pattern_hist.numel(),
-            dtype=torch.long,
-        )
-        values = []
-
-        for i in range(k_clients):
-            for j in range(i + 1, k_clients):
-                both = (
-                    ((codes >> i) & 1).bool()
-                    & ((codes >> j) & 1).bool()
-                )
-                inter = int(pattern_hist[both].sum().item())
-                union = (
-                    int(client_counts[i])
-                    + int(client_counts[j])
-                    - inter
-                )
-                if union > 0:
-                    values.append(inter / union)
-
-        if not values:
-            return {
-                "mean": 0.0,
-                "median": 0.0,
-                "min": 0.0,
-                "max": 0.0,
-            }
-
-        values = sorted(values)
-        n = len(values)
-        if n % 2:
-            median = values[n // 2]
-        else:
-            median = 0.5 * (values[n // 2 - 1] + values[n // 2])
-
-        return {
-            "mean": sum(values) / n,
-            "median": median,
-            "min": values[0],
-            "max": values[-1],
-        }
-
-    @torch.no_grad()
-    def _diag_accumulate_local_step(self, name, grad, m, flip_mask):
-        if not self.diag:
-            return
-
-        device = m.device
-
-        if name not in self._diag_flip_events:
-            self._diag_flip_events[name] = torch.zeros((), device=device, dtype=torch.float64)
-            self._diag_grad_abs_sum[name] = torch.zeros((), device=device, dtype=torch.float64)
-            self._diag_m_abs_sum[name] = torch.zeros((), device=device, dtype=torch.float64)
-            self._diag_layer_steps[name] = 0
-
-        self._diag_flip_events[name].add_(flip_mask.sum().to(torch.float64))
-        self._diag_grad_abs_sum[name].add_(grad.detach().abs().mean().to(torch.float64))
-        self._diag_m_abs_sum[name].add_(m.detach().abs().mean().to(torch.float64))
-        self._diag_layer_steps[name] += 1
+        return self.diag_layer_every > 0 and round_number % self.diag_layer_every == 0
 
     @torch.no_grad()
     def _sign_binary(self, tensor):
-        return torch.where(
-            tensor >= 0,
-            torch.ones_like(tensor),
-            -torch.ones_like(tensor),
-        )
-
-    def _prepare_stats_optimizer(self, model):
-        stats_params = [
-            param
-            for name, param in model.named_parameters()
-            if param.requires_grad
-            and not self._is_binary_param_tensor(
-                name,
-                param.data,
-            )
-        ]
-
-        param_ids = tuple(id(param) for param in stats_params)
-
-        if (
-            self.stats_optimizer is None
-            or self.stats_param_ids != param_ids
-        ):
-            self.stats_optimizer = torch.optim.Adam(
-                stats_params,
-                lr=self.stats_lr,
-                betas=(0.9, 0.999),
-                eps=1e-7,
-                weight_decay=0.0,
-                amsgrad=False,
-            )
-            self.stats_param_ids = param_ids
-
-            self._diag_log(
-                f"STATS_OPT created Adam for {len(stats_params)} non-binary trainable params "
-                f"lr={self.stats_lr:.3e} eps=1e-7 "
-                f"reset_on_sync={int(self.reset_stats_optimizer_on_sync)}"
-            )
+        return torch.where(tensor >= 0, torch.ones_like(tensor), -torch.ones_like(tensor))
 
     def _is_binary_param_tensor(self, name, tensor):
         if not torch.is_tensor(tensor):
             return False
-
         if not torch.is_floating_point(tensor):
             return False
-
         if tensor.dim() < 2:
             return False
 
         lname = name.lower()
-
         if "weight" not in lname:
             return False
 
-        skip_tokens = [
+        skip_tokens = (
             "bn",
             "batchnorm",
             "norm",
@@ -252,45 +546,317 @@ class FedBop(FederatedLearningClass):
             "running_mean",
             "running_var",
             "num_batches_tracked",
-        ]
-
+        )
         return not any(token in lname for token in skip_tokens)
 
-    @torch.no_grad()
-    def _create_client_state(self, model):
-        self.m_buffers = {}
-        self.e_buffers = {}
-        self.round_global_weights = {}
+    def _is_bn_beta_key(self, key):
+        # BinaryNet CenterOnlyBatchNorm exposes trainable beta as bn*.bias.
+        lname = str(key).lower()
+        return lname.endswith(".bias") and "bn" in lname
 
-        for name, param in model.named_parameters():
-            if self._is_binary_param_tensor(name, param.data):
-                self.m_buffers[name] = torch.zeros_like(param.data)
+    def _is_legacy_bn_buffer_key(self, key):
+        lname = str(key).lower()
+        return (
+            "running_mean" in lname
+            or "running_var" in lname
+            or "num_batches_tracked" in lname
+            # CenterOnlyBatchNorm fixed gamma=1 buffer. Binary weights are
+            # already excluded by _is_binary_param_tensor.
+            or ("bn" in lname and lname.endswith(".weight"))
+        )
+
+    @torch.no_grad()
+    def _encode_wire_tensor(self, tensor, mode):
+        """Quantize one floating tensor for simulated wire transmission.
+
+        Returns a self-contained CPU entry and a payload-byte estimate. Metadata
+        keys/shape descriptors are intentionally excluded from the byte estimate;
+        the dominant numeric payload and scale are counted.
+        """
+        mode = str(mode).lower()
+        x = tensor.detach().to(device="cpu", dtype=torch.float32).contiguous()
+        n = int(x.numel())
+
+        if mode == "fp32":
+            return {"mode": "fp32", "data": x}, 4 * n
+
+        if mode == "fp16":
+            # A single scale protects second moments from FP16 overflow. For
+            # ordinary beta/means the scale is normally exactly 1.0.
+            max_abs = float(x.abs().max().item()) if n else 0.0
+            scale = max(1.0, max_abs / 60000.0)
+            q = (x / scale).to(torch.float16)
+            return {"mode": "fp16", "data": q, "scale": float(scale)}, 2 * n + 4
+
+        if mode == "int8":
+            max_abs = float(x.abs().max().item()) if n else 0.0
+            scale = max_abs / 127.0 if max_abs > 0.0 else 1.0
+            q = torch.round(x / scale).clamp(-127, 127).to(torch.int8)
+            return {"mode": "int8", "data": q, "scale": float(scale)}, n + 4
+
+        raise ValueError(f"Unsupported wire mode: {mode}")
+
+    @torch.no_grad()
+    def _decode_wire_tensor(self, entry, device="cpu", dtype=torch.float32):
+        mode = str(entry.get("mode", "fp32")).lower()
+        data = entry["data"]
+        if mode == "fp32":
+            x = data.to(device=device, dtype=torch.float32)
+        elif mode == "fp16":
+            x = data.to(device=device, dtype=torch.float32) * float(entry.get("scale", 1.0))
+        elif mode == "int8":
+            x = data.to(device=device, dtype=torch.float32) * float(entry.get("scale", 1.0))
+        else:
+            raise ValueError(f"Unsupported wire mode in packet: {mode}")
+        return x.to(dtype=dtype)
+
+    def _prepare_stats_optimizer(self, model):
+        params = [
+            p
+            for name, p in model.named_parameters()
+            if p.requires_grad and not self._is_binary_param_tensor(name, p.data)
+        ]
+        ids = tuple(id(p) for p in params)
+
+        if self.stats_optimizer is None or self.stats_param_ids != ids:
+            self.stats_optimizer = torch.optim.Adam(
+                params,
+                lr=self.stats_lr,
+                betas=(0.9, 0.999),
+                eps=1e-7,
+                weight_decay=0.0,
+                amsgrad=False,
+            )
+            self.stats_param_ids = ids
+            self._log(
+                f"STATS_OPT Adam params={len(params)} lr={self.stats_lr:.3e} "
+                f"persistent_state=1 outer_SGD=disabled"
+            )
 
     @torch.no_grad()
     def _prepare_m_buffer(self, key, reference):
         if self.m_buffers is None:
             self.m_buffers = {}
 
-        if key not in self.m_buffers:
-            self.m_buffers[key] = torch.zeros_like(reference)
-            return self.m_buffers[key]
-
-        m = self.m_buffers[key]
-
-        if m.shape != reference.shape:
+        m = self.m_buffers.get(key)
+        if m is None or m.shape != reference.shape:
             m = torch.zeros_like(reference)
-
-        elif (
-            m.device != reference.device
-            or m.dtype != reference.dtype
-        ):
-            m = m.to(
-                device=reference.device,
-                dtype=reference.dtype,
-            )
+        elif m.device != reference.device or m.dtype != reference.dtype:
+            m = m.to(device=reference.device, dtype=reference.dtype)
 
         self.m_buffers[key] = m
         return m
+
+    @torch.no_grad()
+    def _create_client_state(self, model):
+        self.m_buffers = {}
+        self.round_global_weights = {}
+        self.temporal_opposite_counts = {}
+        self.temporal_state_steps = {}
+        self.round_local_vote_masks = {}
+
+        for name, param in model.named_parameters():
+            if self._is_binary_param_tensor(name, param.data):
+                self.m_buffers[name] = torch.zeros_like(param.data)
+
+    def _is_decay_round(self, round_number):
+        try:
+            r = int(round_number)
+        except Exception:
+            return False
+        return (
+            self.decay_rounds > 0
+            and r > 0
+            and r < int(self.num_of_rounds)
+            and (r % int(self.decay_rounds) == 0)
+        )
+
+    def _is_sync_round(self, round_number):
+        try:
+            r = int(round_number)
+        except Exception:
+            return False
+        return (
+            self.sync_rounds > 0
+            and r > 0
+            and r < int(self.num_of_rounds)
+            and (r % int(self.sync_rounds) == 0)
+        )
+
+    @torch.no_grad()
+    def _pack_ternary_base3(self, q):
+        """Pack q in {-1,0,+1}: five trits per uint8 (3**5 = 243)."""
+        q = q.detach().to(device="cpu", dtype=torch.int16).view(-1)
+        trits = q + 1  # -1->0, 0->1, +1->2
+        n = int(trits.numel())
+        pad = (-n) % 5
+        if pad:
+            # q=0 corresponds to trit 1, so padded coordinates decode to zero.
+            trits = torch.cat([trits, torch.ones(pad, dtype=torch.int16)])
+        trits = trits.view(-1, 5).to(torch.int32)
+        powers = torch.tensor([1, 3, 9, 27, 81], dtype=torch.int32).view(1, 5)
+        packed = (trits * powers).sum(dim=1).to(torch.uint8)
+        return packed, n
+
+    @torch.no_grad()
+    def _unpack_ternary_base3(self, packed, numel):
+        packed = torch.as_tensor(packed, dtype=torch.uint8, device="cpu").view(-1)
+        values = packed.to(torch.int32).view(-1, 1)
+        powers = torch.tensor([1, 3, 9, 27, 81], dtype=torch.int32).view(1, 5)
+        trits = torch.remainder(torch.div(values, powers, rounding_mode="floor"), 3)
+        return (trits.to(torch.int8) - 1).view(-1)[: int(numel)]
+
+    @torch.no_grad()
+    def _quantize_momentum_ternary(self, m):
+        """Bop-aware ternary momentum codec with one FP32 scale per layer."""
+        x = m.detach().to(device="cpu", dtype=torch.float32).view(-1)
+        deadzone = max(0.0, float(self.ternary_deadzone_mult)) * float(self.tau)
+        active = x.abs() > deadzone
+        q = torch.zeros(x.numel(), dtype=torch.int8)
+        active_n = int(active.sum().item())
+
+        if active_n > 0:
+            q[active] = torch.sign(x[active]).to(torch.int8)
+            scale = float(x[active].abs().mean().item())
+        else:
+            scale = float(self.tau)
+
+        min_scale = max(1e-30, float(self.ternary_min_scale_mult) * float(self.tau))
+        scale = max(scale, min_scale)
+        packed, numel = self._pack_ternary_base3(q)
+        recon = q.to(torch.float32) * float(scale)
+
+        mse = float(((recon - x) ** 2).mean().item()) if x.numel() else 0.0
+        mean_abs = float(x.abs().mean().item()) if x.numel() else 0.0
+        rel_rmse = math.sqrt(mse) / max(1e-30, mean_abs)
+
+        entry = {
+            "packed": packed,
+            "numel": int(numel),
+            "scale": torch.tensor(float(scale), dtype=torch.float32),
+        }
+        diag = {
+            "nonzero": active_n,
+            "packed_bytes": int(packed.numel()),
+            "scale": float(scale),
+            "deadzone": float(deadzone),
+            "rel_rmse": float(rel_rmse),
+        }
+        return entry, recon, diag
+
+    @torch.no_grad()
+    def _decode_ternary_entry(self, entry, device="cpu", dtype=torch.float32):
+        q = self._unpack_ternary_base3(entry["packed"], entry["numel"])
+        x = q.to(torch.float32) * float(entry["scale"])
+        return x.to(device=device, dtype=dtype)
+
+    @torch.no_grad()
+    def _prepare_momentum_consensus(self, clients_models, global_model, round_number):
+        """Average client Bop EMA states on an independent momentum-sync boundary.
+
+        The ordinary sparse event aggregation has already selected the global
+        binary model for this round. Here we ONLY build a shared CLIENT momentum
+        state for the next local round. The server event momentum remains intact.
+        """
+        self.pending_shared_m_ternary = {}
+        self.pending_sync_round = int(round_number)
+
+        k_clients = len(clients_models)
+        total_numel = 0
+        total_uplink_bytes = 0
+        total_downlink_bytes = 0
+        total_mean_abs = 0.0
+        total_sync_abs = 0.0
+        total_sync_nonzero = 0
+        total_rel_rmse = 0.0
+        total_client_mad = 0.0
+        sync_layers = 0
+
+        for key, global_tensor in global_model.items():
+            if not torch.is_tensor(global_tensor):
+                continue
+            if not self._is_binary_param_tensor(key, global_tensor):
+                continue
+
+            n = int(global_tensor.numel())
+            m_sum = torch.zeros(n, dtype=torch.float32, device="cpu")
+            received = 0
+
+            for _, packet in clients_models:
+                entry = packet.get("momentum_ternary_model", {}).get(key)
+                if entry is None:
+                    continue
+                decoded = self._decode_ternary_entry(entry).view(-1)
+                if decoded.numel() != n:
+                    raise ValueError(
+                        f"Momentum-consensus size mismatch for {key}: "
+                        f"{decoded.numel()} != {n}"
+                    )
+                m_sum.add_(decoded)
+                received += 1
+                total_uplink_bytes += int(torch.as_tensor(entry["packed"]).numel()) + 4
+
+            if received != k_clients:
+                raise RuntimeError(
+                    f"Sync round {round_number}: expected momentum sidecar for "
+                    f"layer {key} from all {k_clients} participating clients; got {received}."
+                )
+
+            mean_m = m_sum / float(received)
+
+            # Direct measure of client optimizer-state desynchronization before
+            # consensus: mean absolute deviation from the client mean. This is a
+            # diagnostic only and is especially useful around gamma transitions.
+            layer_abs_dev = 0.0
+            for _, packet in clients_models:
+                entry = packet["momentum_ternary_model"][key]
+                decoded = self._decode_ternary_entry(entry).view(-1)
+                layer_abs_dev += float((decoded - mean_m).abs().sum().item())
+            total_client_mad += layer_abs_dev / float(received)
+
+            shared_entry, shared_m, qdiag = self._quantize_momentum_ternary(mean_m)
+            self.pending_shared_m_ternary[key] = shared_entry
+
+            total_numel += n
+            total_downlink_bytes += int(qdiag["packed_bytes"]) + 4
+            total_mean_abs += float(mean_m.abs().sum().item())
+            total_sync_abs += float(shared_m.abs().sum().item())
+            total_sync_nonzero += int(qdiag["nonzero"])
+            total_rel_rmse += float(qdiag["rel_rmse"])
+            sync_layers += 1
+
+        if self.diag:
+            self._log(
+                f"M_SYNC_CONSENSUS round={round_number} K={k_clients} "
+                f"gamma_before={self.gamma:.3e} layers={sync_layers} "
+                f"mean|m_mean|={total_mean_abs/max(1,total_numel):.3e} "
+                f"client_m_MAD={total_client_mad/max(1,total_numel):.3e} "
+                f"mean|m_shared|={total_sync_abs/max(1,total_numel):.3e} "
+                f"shared_nonzero_rate={total_sync_nonzero/max(1,total_numel):.6e} "
+                f"mean_rel_rmse={total_rel_rmse/max(1,sync_layers):.3e} "
+                f"ternary_uplink_total_MiB={total_uplink_bytes/(1024.0**2):.3f} "
+                f"ternary_uplink_per_client_MiB={(total_uplink_bytes/max(1,k_clients))/(1024.0**2):.3f} "
+                f"ternary_downlink_MiB={total_downlink_bytes/(1024.0**2):.3f} "
+                f"server_event_m_preserved=1"
+            )
+
+    def _infer_round_number(self, clients_models=None):
+        if clients_models:
+            for _, packet in clients_models:
+                diag = packet.get("diag", {})
+                if "round" in diag:
+                    try:
+                        return int(diag["round"])
+                    except Exception:
+                        pass
+        try:
+            return int(self.server.round_number)
+        except Exception:
+            return -1
+
+    # -------------------------------------------------------------------------
+    # Client local optimization
+    # -------------------------------------------------------------------------
 
     @torch.no_grad()
     def after_backward(self, client_train_dict):
@@ -305,895 +871,1164 @@ class FedBop(FederatedLearningClass):
         for name, param in model.named_parameters():
             if param.grad is None:
                 continue
-
-            if not self._is_binary_param_tensor(
-                name,
-                param.data,
-            ):
+            if not self._is_binary_param_tensor(name, param.data):
                 continue
 
-            param.data.copy_(
-                self._sign_binary(param.data)
-            )
-
-            m = self._prepare_m_buffer(
-                name,
-                param.data,
-            )
-
+            # Stored kernel itself is binary; Bop owns this parameter.
+            param.data.copy_(self._sign_binary(param.data))
+            m = self._prepare_m_buffer(name, param.data)
             grad = param.grad.detach()
 
-            m.mul_(1.0 - self.gamma).add_(
-                grad,
-                alpha=self.gamma,
+            # Original Bop EMA.
+            m.mul_(1.0 - self.gamma).add_(grad, alpha=self.gamma)
+
+            # For w in {-1,+1}, the ordinary Bop flip condition is equivalent to
+            # w*m > tau.
+            flip_mask = (m.abs() > self.tau) & (
+                torch.sign(m) == self._sign_binary(param.data)
             )
 
-            flip_mask = (
-                (m.abs() > self.tau)
-                & (
-                    torch.sign(m)
-                    == self._sign_binary(param.data)
-                )
-            )
+            if self.diag:
+                if name not in self._diag_raw_flips:
+                    self._diag_raw_flips[name] = 0
+                    self._diag_grad_abs[name] = 0.0
+                self._diag_raw_flips[name] += int(flip_mask.sum().item())
+                self._diag_grad_abs[name] += float(grad.abs().mean().item())
 
-            self._diag_accumulate_local_step(
-                name,
-                grad,
-                m,
-                flip_mask,
-            )
-
+            # Apply actual local Bop transition.
             param.data[flip_mask] = -param.data[flip_mask]
+            param.data.copy_(self._sign_binary(param.data))
 
-            param.data.copy_(
-                self._sign_binary(param.data)
-            )
+            # Fixed one-bit semantic for the whole run:
+            # Did the realized binary state spend a strict majority of local
+            # minibatches opposite to the round-start global state w0?
+            w0_cpu = None if self.round_global_weights is None else self.round_global_weights.get(name)
+            if w0_cpu is not None:
+                w0 = self._sign_binary(
+                    w0_cpu.to(device=param.device, dtype=param.dtype)
+                )
+                count = self.temporal_opposite_counts.get(name)
+                if (
+                    count is None
+                    or count.shape != param.shape
+                    or count.device != param.device
+                ):
+                    count = torch.zeros_like(param.data, dtype=torch.int16)
 
+                count.add_((self._sign_binary(param.data) != w0).to(torch.int16))
+                self.temporal_opposite_counts[name] = count
+                self.temporal_state_steps[name] = self.temporal_state_steps.get(name, 0) + 1
+
+            # Prevent the framework optimizer from touching binary parameters.
             param.grad = None
 
+        # Real-valued trainables are optimized ONCE by Adam.
         if self.stats_optimizer is not None:
             self.stats_optimizer.step()
             self.stats_optimizer.zero_grad(set_to_none=True)
 
-        return True
+        # Important: ClientExp interprets False as "do not call the outer optimizer".
+        # This prevents the non-binary parameters from receiving an additional SGD
+        # update after Adam and matches the intended Bop optimization split.
+        return False
+
+
+    # -------------------------------------------------------------------------
+    # Gap + Rice codec for sparse binary events
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _indices_to_gaps(indices):
+        """
+        Convert sorted unique non-negative indices to non-negative gaps.
+
+        Example:
+            [12, 15, 19, 35] -> [12, 2, 3, 15]
+
+        For i > 0:
+            gap[i] = idx[i] - idx[i-1] - 1
+        """
+        idx = torch.as_tensor(indices, dtype=torch.long, device="cpu").view(-1)
+
+        if idx.numel() == 0:
+            return torch.empty(0, dtype=torch.long)
+
+        if bool((idx < 0).any()):
+            raise ValueError("Gap-Rice codec received a negative index.")
+
+        if idx.numel() > 1:
+            if bool((idx[1:] <= idx[:-1]).any()):
+                raise ValueError(
+                    "Gap-Rice codec requires strictly increasing unique indices."
+                )
+
+        gaps = idx.clone()
+        if idx.numel() > 1:
+            gaps[1:] = idx[1:] - idx[:-1] - 1
+
+        return gaps
+
+
+    @staticmethod
+    def _gaps_to_indices(gaps):
+        """
+        Inverse of _indices_to_gaps().
+        """
+        gaps = torch.as_tensor(
+            gaps,
+            dtype=torch.long,
+            device="cpu"
+        ).view(-1)
+
+        if gaps.numel() == 0:
+            return torch.empty(0, dtype=torch.long)
+
+        if bool((gaps < 0).any()):
+            raise ValueError("Gap-Rice decoder produced a negative gap.")
+
+        idx = torch.empty_like(gaps)
+        idx[0] = gaps[0]
+
+        if gaps.numel() > 1:
+            # idx[i] = idx[i-1] + gap[i] + 1
+            idx[1:] = gaps[1:] + 1
+            idx = torch.cumsum(idx, dim=0)
+
+        return idx
+
+
+    @staticmethod
+    def _choose_rice_k(gaps):
+        """
+        Select the Rice parameter k that minimizes the exact code length:
+
+            B(k) = sum_i floor(gap_i / 2^k) + N * (k + 1)
+
+        This includes:
+          - q_i unary bits: q_i + 1
+          - k remainder bits per value
+
+        The search is exact over all useful k values.
+        """
+        gaps = torch.as_tensor(
+            gaps,
+            dtype=torch.long,
+            device="cpu"
+        ).view(-1)
+
+        n = int(gaps.numel())
+        if n == 0:
+            return 0, 0
+
+        max_gap = int(gaps.max().item())
+
+        # No optimum can require k much larger than the bit width of max_gap.
+        max_k = max(0, int(max_gap).bit_length())
+
+        best_k = 0
+        best_bits = None
+
+        for k in range(max_k + 1):
+            quotient_bits = int((gaps >> k).sum().item())
+            total_bits = quotient_bits + n * (k + 1)
+
+            if best_bits is None or total_bits < best_bits:
+                best_bits = total_bits
+                best_k = k
+
+        return int(best_k), int(best_bits)
+
+
+    @staticmethod
+    def _rice_encode_gaps(gaps, k):
+        """
+        Encode non-negative integer gaps using Rice coding.
+
+        Codeword for x:
+            q = x >> k
+            r = x & ((1 << k) - 1)
+
+            [ q times '1' ][ '0' ][ r in exactly k bits ]
+
+        Bits are packed MSB-first into a bytes object.
+        Returns:
+            payload_bytes, exact_valid_bit_count
+        """
+        gaps = torch.as_tensor(
+            gaps,
+            dtype=torch.long,
+            device="cpu"
+        ).view(-1)
+
+        k = int(k)
+        if k < 0:
+            raise ValueError("Rice parameter k must be non-negative.")
+
+        if gaps.numel() == 0:
+            return b"", 0
+
+        out = bytearray()
+        current_byte = 0
+        used_bits = 0
+        total_bits = 0
+
+        def write_bits(value, count):
+            nonlocal current_byte, used_bits, total_bits
+
+            value = int(value)
+            count = int(count)
+
+            while count > 0:
+                free = 8 - used_bits
+                take = min(free, count)
+
+                shift = count - take
+                mask = (1 << take) - 1
+                chunk = (value >> shift) & mask
+
+                current_byte = (current_byte << take) | chunk
+                used_bits += take
+                total_bits += take
+                count -= take
+
+                if used_bits == 8:
+                    out.append(current_byte & 0xFF)
+                    current_byte = 0
+                    used_bits = 0
+
+        for x_tensor in gaps:
+            x = int(x_tensor.item())
+            if x < 0:
+                raise ValueError("Rice coding only supports non-negative integers.")
+
+            q = x >> k
+            r = x & ((1 << k) - 1) if k > 0 else 0
+
+            # Unary q: q ones followed by one zero.
+            # Write long unary runs in chunks to avoid one Python iteration/bit.
+            q_left = q
+            while q_left >= 64:
+                write_bits((1 << 64) - 1, 64)
+                q_left -= 64
+
+            if q_left > 0:
+                write_bits((1 << q_left) - 1, q_left)
+
+            write_bits(0, 1)
+
+            if k > 0:
+                write_bits(r, k)
+
+        # Pad the final partial byte with zero bits on the right.
+        if used_bits > 0:
+            current_byte <<= (8 - used_bits)
+            out.append(current_byte & 0xFF)
+
+        return bytes(out), int(total_bits)
+
+
+    @staticmethod
+    def _rice_decode_gaps(payload, k, count, num_bits):
+        """
+        Decode a Rice-coded bytes payload back to a CPU int64 gap tensor.
+        """
+        if not isinstance(payload, (bytes, bytearray, memoryview)):
+            raise TypeError(
+                f"Rice payload must be bytes-like, got {type(payload).__name__}."
+            )
+
+        payload = bytes(payload)
+        k = int(k)
+        count = int(count)
+        num_bits = int(num_bits)
+
+        if k < 0 or count < 0 or num_bits < 0:
+            raise ValueError("Invalid Rice codec metadata.")
+
+        if count == 0:
+            if num_bits != 0:
+                raise ValueError(
+                    "Rice packet has zero values but non-zero valid bit count."
+                )
+            return torch.empty(0, dtype=torch.long)
+
+        if num_bits > len(payload) * 8:
+            raise ValueError(
+                "Rice packet declares more valid bits than are present."
+            )
+
+        bit_pos = 0
+        values = []
+
+        def read_bit():
+            nonlocal bit_pos
+
+            if bit_pos >= num_bits:
+                raise ValueError("Unexpected end of Rice bitstream.")
+
+            byte_index = bit_pos >> 3
+            bit_in_byte = 7 - (bit_pos & 7)
+            bit = (payload[byte_index] >> bit_in_byte) & 1
+            bit_pos += 1
+            return bit
+
+        def read_fixed(nbits):
+            value = 0
+            for _ in range(int(nbits)):
+                value = (value << 1) | read_bit()
+            return value
+
+        for _ in range(count):
+            q = 0
+
+            while True:
+                bit = read_bit()
+                if bit == 0:
+                    break
+                q += 1
+
+            r = read_fixed(k) if k > 0 else 0
+            x = (q << k) | r
+            values.append(x)
+
+        return torch.tensor(values, dtype=torch.long)
+
+
+    @classmethod
+    def _encode_sparse_indices_gap_rice(cls, indices):
+        """
+        Encode sorted sparse indices.
+
+        Wire format is a compact tuple:
+            ("gr1", k, count, num_bits, payload_bytes)
+
+        Tuple metadata is deliberately compact because the framework profiler
+        measures the serialized object that is actually transmitted.
+        """
+        gaps = cls._indices_to_gaps(indices)
+        k, predicted_bits = cls._choose_rice_k(gaps)
+        payload, num_bits = cls._rice_encode_gaps(gaps, k)
+
+        if int(num_bits) != int(predicted_bits):
+            raise RuntimeError(
+                f"Rice bit-count mismatch: predicted={predicted_bits}, "
+                f"encoded={num_bits}"
+            )
+
+        return (
+            "gr1",
+            int(k),
+            int(gaps.numel()),
+            int(num_bits),
+            payload,
+        )
+
+
+    @classmethod
+    def _decode_sparse_indices_gap_rice(cls, entry):
+        """
+        Decode the compact ("gr1", ...) wire tuple back to sorted indices.
+        """
+        if not isinstance(entry, (tuple, list)) or len(entry) != 5:
+            raise ValueError("Invalid Gap-Rice sparse-index entry.")
+
+        codec, k, count, num_bits, payload = entry
+
+        if codec != "gr1":
+            raise ValueError(f"Unsupported sparse-index codec: {codec!r}")
+
+        gaps = cls._rice_decode_gaps(
+            payload=payload,
+            k=k,
+            count=count,
+            num_bits=num_bits,
+        )
+
+        return cls._gaps_to_indices(gaps)
+
+    # ---------------------------------------------------------------------
+    # Dense 1-bit binary snapshot codec (downlink bootstrap / safe fallback)
+    # ---------------------------------------------------------------------
+
+    @staticmethod
+    def _encode_binary_snapshot_1bit(tensor):
+        """Pack signs into one bit/coordinate, MSB-first.
+
+        Wire format:
+            ("bp1", numel, payload_bytes)
+
+        +1 is encoded as bit 1 and -1 as bit 0.  Zero follows FedBop's
+        existing tie rule (>=0 -> +1).  This codec is used only when a client
+        has no delta base yet (initial broadcast), or when an absolute 1-bit
+        snapshot is smaller on the actual pickle wire than a Rice delta.
+        """
+        x = torch.as_tensor(tensor, device="cpu").contiguous().view(-1)
+        n = int(x.numel())
+        if n == 0:
+            return ("bp1", 0, b"")
+
+        bits = (x >= 0).to(torch.uint8)
+        pad = (-n) % 8
+        if pad:
+            bits = torch.cat([bits, torch.zeros(pad, dtype=torch.uint8)])
+
+        bits = bits.view(-1, 8).to(torch.int16)
+        weights = torch.tensor(
+            [128, 64, 32, 16, 8, 4, 2, 1],
+            dtype=torch.int16,
+        ).view(1, 8)
+        packed = (bits * weights).sum(dim=1).to(torch.uint8).contiguous()
+        return ("bp1", n, packed.numpy().tobytes())
+
+    @staticmethod
+    def _decode_binary_snapshot_1bit(entry, device="cpu", dtype=torch.float32):
+        if not isinstance(entry, (tuple, list)) or len(entry) != 3:
+            raise ValueError("Invalid 1-bit binary snapshot entry.")
+
+        codec, numel, payload = entry
+        if codec != "bp1":
+            raise ValueError(f"Unsupported binary snapshot codec: {codec!r}")
+        if not isinstance(payload, (bytes, bytearray, memoryview)):
+            raise TypeError(
+                f"Binary snapshot payload must be bytes-like, got {type(payload).__name__}."
+            )
+
+        n = int(numel)
+        if n < 0:
+            raise ValueError("Binary snapshot numel must be non-negative.")
+        payload = bytes(payload)
+        expected_bytes = (n + 7) // 8
+        if len(payload) != expected_bytes:
+            raise ValueError(
+                f"Binary snapshot payload length mismatch: {len(payload)} != {expected_bytes}."
+            )
+        if n == 0:
+            return torch.empty(0, device=device, dtype=dtype)
+
+        # bytearray gives torch a writable buffer and avoids the non-writable
+        # bytes warning from torch.frombuffer.  Expansion is done in eight
+        # vectorized strided assignments, not one Python operation per bit.
+        packed = torch.frombuffer(bytearray(payload), dtype=torch.uint8)
+        out = torch.empty(int(packed.numel()) * 8, dtype=torch.int8)
+        for bit in range(8):
+            out[bit::8] = ((packed >> (7 - bit)) & 1).to(torch.int8)
+        signs = out[:n].to(torch.float32).mul_(2.0).sub_(1.0)
+        return signs.to(device=device, dtype=dtype)
+
+    @classmethod
+    def _encode_server_binary_wire(cls, current_sign, previous_sign=None):
+        """Encode one authoritative global binary tensor losslessly.
+
+        If there is no synchronized previous server state, send a dense 1-bit
+        snapshot.  Otherwise encode only sign-flip indices with Gap+Rice.  For
+        safety, compare the *actual default-pickle size* of the Rice delta and
+        the 1-bit snapshot and use the smaller entry.  This can only change
+        communication cost, never the reconstructed global binary state.
+
+        Returns:
+            entry, diag
+        """
+        cur = torch.as_tensor(
+            current_sign, dtype=torch.float32, device="cpu"
+        ).contiguous().view(-1)
+        cur = torch.where(cur >= 0, torch.ones_like(cur), -torch.ones_like(cur))
+        snapshot = cls._encode_binary_snapshot_1bit(cur)
+        snapshot_pickle_bytes = len(pickle.dumps(snapshot))
+
+        if previous_sign is None:
+            return snapshot, {
+                "mode": "snapshot",
+                "events": 0,
+                "rice_k": 0,
+                "rice_valid_bits": 0,
+                "rice_data_bytes": 0,
+                "snapshot_data_bytes": len(snapshot[2]),
+                "selected_pickle_bytes": snapshot_pickle_bytes,
+            }
+
+        prev = torch.as_tensor(
+            previous_sign, dtype=torch.float32, device="cpu"
+        ).contiguous().view(-1)
+        prev = torch.where(prev >= 0, torch.ones_like(prev), -torch.ones_like(prev))
+        if int(prev.numel()) != int(cur.numel()):
+            return snapshot, {
+                "mode": "snapshot",
+                "events": 0,
+                "rice_k": 0,
+                "rice_valid_bits": 0,
+                "rice_data_bytes": 0,
+                "snapshot_data_bytes": len(snapshot[2]),
+                "selected_pickle_bytes": snapshot_pickle_bytes,
+            }
+
+        flip_indices = torch.nonzero(cur != prev, as_tuple=False).view(-1).to(torch.long)
+        rice = cls._encode_sparse_indices_gap_rice(flip_indices)
+        rice_pickle_bytes = len(pickle.dumps(rice))
+
+        if rice_pickle_bytes <= snapshot_pickle_bytes:
+            _, k, count, valid_bits, rice_payload = rice
+            return rice, {
+                "mode": "rice_delta",
+                "events": int(count),
+                "rice_k": int(k),
+                "rice_valid_bits": int(valid_bits),
+                "rice_data_bytes": len(rice_payload),
+                "snapshot_data_bytes": len(snapshot[2]),
+                "selected_pickle_bytes": rice_pickle_bytes,
+            }
+
+        return snapshot, {
+            "mode": "snapshot_fallback",
+            "events": int(flip_indices.numel()),
+            "rice_k": int(rice[1]),
+            "rice_valid_bits": int(rice[3]),
+            "rice_data_bytes": len(rice[4]),
+            "snapshot_data_bytes": len(snapshot[2]),
+            "selected_pickle_bytes": snapshot_pickle_bytes,
+        }
+
 
     @torch.no_grad()
     def pack_client_model(self, raw_model, global_model, id):
         tensors = {}
+        # Generic compatibility path for any non-BN, non-binary state.
         stats_model = {}
+        # Trainable CenterOnly-BN beta is the only real-valued model parameter
+        # in BinaryNet. Uplink sends quantized DELTA beta, not absolute beta.
+        beta_model = {}
+        beta_payload_bytes = 0
+        beta_numel = 0
 
-        if self.e_buffers is None:
-            self.e_buffers = {}
+        round_number = int(self._scheduled_local_round or (self._diag_client_round + 1))
+        self._diag_client_round = round_number
+        sync_round = self._is_sync_round(round_number)
+        momentum_ternary_model = {}
+        sync_payload_bytes = 0
+        sync_nonzero = 0
+        sync_rel_rmse_sum = 0.0
+        sync_layers = 0
 
-        if self.round_global_weights is None:
-            self.round_global_weights = {}
-
-        self._diag_client_round += 1
-        round_number = self._diag_client_round
-
-        diag_layers = {}
         total_binary = 0
-        total_raw_flip_events = 0
-        total_endpoint_flips = 0
-        total_transmitted_votes = 0
-        total_stale_endpoint_flips = 0
-        total_old_global_trigger = 0
-        total_post_bop_violations = 0
-        weighted_abs_m_sum = 0.0
-        weighted_grad_abs_sum = 0.0
+        total_endpoint = 0
+        total_votes = 0
+        total_intersection = 0
+        total_union = 0
 
-        repeat_prev_available = 0
-        total_prev_endpoint = 0
-        total_repeat_intersection = 0
+        # Gap-Rice communication diagnostics.
+        rice_data_bytes = 0
+        rice_valid_bits = 0
+        fixed_index_bits = 0
+        rice_layers = 0
+
+        layer_diag = {}
 
         for key, tensor in raw_model.items():
             if not torch.is_tensor(tensor):
                 continue
 
-            if self._is_binary_param_tensor(key, tensor):
-                local_weight = self._sign_binary(
-                    tensor.detach().cpu()
-                )
+            if not self._is_binary_param_tensor(key, tensor):
+                if self._is_bn_beta_key(key) and key in global_model:
+                    local_beta = tensor.detach().to(device="cpu", dtype=torch.float32)
+                    entry, nbytes = self._encode_wire_tensor(local_beta, self.beta_comm_mode)
+                    beta_model[key] = entry
+                    beta_payload_bytes += int(nbytes)
+                    beta_numel += int(local_beta.numel())
+                    continue
 
-                global_weight = self._sign_binary(
-                    global_model[key].detach().cpu()
-                )
+                if int(self.omit_legacy_bn_buffers) and self._is_legacy_bn_buffer_key(key):
+                    # running mean/var are replaced by global-model recalibration;
+                    # num_batches_tracked and fixed BN gamma=1 are not model updates.
+                    continue
 
-                local_flip = (
-                    local_weight.view(-1)
-                    != global_weight.view(-1)
-                )
+                stats_model[key] = tensor.detach().cpu()
+                continue
 
-                if (
-                    self.m_buffers is not None
-                    and key in self.m_buffers
-                ):
-                    m = (
-                        self.m_buffers[key]
-                        .detach()
-                        .cpu()
-                    )
-                else:
-                    m = torch.zeros_like(global_weight)
+            local_weight = self._sign_binary(tensor.detach().cpu()).view(-1)
+            global_weight = self._sign_binary(global_model[key].detach().cpu()).view(-1)
+            endpoint_flip = local_weight != global_weight
 
-                aligned_m = global_weight * m
-                old_global_trigger_mask = (
-                    aligned_m.view(-1) > self.tau
-                )
+            steps = int(self.temporal_state_steps.get(key, 0))
+            counts = self.temporal_opposite_counts.get(key)
 
-                # Sparse evidence: transmit every binary coordinate whose endpoint
-                # sign differs from the round-start global sign. Final momentum
-                # consistency is diagnostic only; it does not filter communication.
-                vote_mask = local_flip
-                endpoint_final_trigger_mask = (
-                    local_flip
-                    & old_global_trigger_mask
-                )
+            if counts is None or counts.numel() != tensor.numel() or steps <= 0:
+                vote_mask = endpoint_flip.clone()
+                fallback = 1
+            else:
+                c = counts.detach().cpu().view(-1).to(torch.int32)
+                vote_mask = c > (int(steps) - c)
+                fallback = 0
 
-                flip_indices = torch.nonzero(
-                    vote_mask,
-                    as_tuple=False,
-                ).view(-1)
+            self.round_local_vote_masks[key] = vote_mask.clone()
+            flip_indices = torch.nonzero(
+                vote_mask,
+                as_tuple=False
+            ).view(-1).to(device="cpu", dtype=torch.long)
 
-                prev_flip = None
-                repeat_intersection = 0
-                prev_endpoint_flips = 0
-                if self.diag:
-                    prev_flip = self._diag_prev_endpoint_masks.get(key)
-                    if (
-                        prev_flip is not None
-                        and prev_flip.shape == local_flip.shape
-                    ):
-                        repeat_prev_available = 1
-                        prev_endpoint_flips = int(prev_flip.sum().item())
-                        repeat_intersection = int(
-                            (local_flip & prev_flip).sum().item()
-                        )
-                        total_prev_endpoint += prev_endpoint_flips
-                        total_repeat_intersection += repeat_intersection
+            rice_entry = self._encode_sparse_indices_gap_rice(
+                flip_indices
+            )
+            tensors[key] = rice_entry
 
-                    self._diag_prev_endpoint_masks[key] = (
-                        local_flip.detach().cpu().clone()
-                    )
+            # Logical codec diagnostics.  The profiler still measures the
+            # complete serialized packet, including tuple/dict metadata.
+            _, rice_k, rice_count, rice_bits, rice_payload = rice_entry
 
-                tensors[key] = {
-                    "idx": flip_indices.tolist(),
+            index_width = max(
+                1,
+                int(max(1, tensor.numel() - 1)).bit_length()
+            )
+
+            layer_fixed_bits = int(flip_indices.numel()) * index_width
+
+            layer_ratio = (
+                layer_fixed_bits / max(1, int(rice_bits))
+            )
+
+            self._log(
+                f"GAP_RICE_LAYER "
+                f"round={round_number} "
+                f"id={id} "
+                f"layer={key} "
+                f"numel={tensor.numel()} "
+                f"events={rice_count} "
+                f"k={rice_k} "
+                f"valid_bits={rice_bits} "
+                f"data_bytes={len(rice_payload)} "
+                f"fixed_index_bits={layer_fixed_bits} "
+                f"codec_ratio={layer_ratio:.4f}x"
+            )
+
+            rice_data_bytes += len(rice_payload)
+            rice_valid_bits += int(rice_bits)
+            rice_layers += 1
+
+            # Reference cost: minimum fixed-width index representation for
+            # this layer (not Python-list/pickle size).
+            index_width = max(
+                1,
+                int(max(1, tensor.numel() - 1)).bit_length()
+            )
+            fixed_index_bits += int(flip_indices.numel()) * index_width
+
+            if sync_round:
+                m = self._prepare_m_buffer(key, tensor)
+                ternary_entry, _, ternary_diag = self._quantize_momentum_ternary(m)
+                momentum_ternary_model[key] = ternary_entry
+                sync_payload_bytes += int(ternary_diag["packed_bytes"]) + 4
+                sync_nonzero += int(ternary_diag["nonzero"])
+                sync_rel_rmse_sum += float(ternary_diag["rel_rmse"])
+                sync_layers += 1
+
+            self.round_global_weights[key] = global_weight.view_as(tensor).clone()
+
+            if self.diag:
+                endpoint_n = int(endpoint_flip.sum().item())
+                vote_n = int(vote_mask.sum().item())
+                inter_n = int((vote_mask & endpoint_flip).sum().item())
+                union_n = int((vote_mask | endpoint_flip).sum().item())
+                total_binary += tensor.numel()
+                total_endpoint += endpoint_n
+                total_votes += vote_n
+                total_intersection += inter_n
+                total_union += union_n
+                layer_diag[key] = {
+                    "n": tensor.numel(),
+                    "steps": steps,
+                    "endpoint": endpoint_n,
+                    "votes": vote_n,
+                    "jaccard": inter_n / max(1, union_n),
+                    "fallback": fallback,
                 }
 
-                self.e_buffers[key] = (
-                    self.tau - aligned_m
-                )
-
-                self.round_global_weights[key] = (
-                    global_weight.clone()
-                )
-
-                if self.diag:
-                    numel = tensor.numel()
-                    raw_flip_events = int(
-                        self._diag_flip_events.get(
-                            key,
-                            torch.tensor(0.0),
-                        ).item()
-                    )
-                    endpoint_flips = int(local_flip.sum().item())
-                    transmitted_votes = int(vote_mask.sum().item())
-                    endpoint_final_trigger = int(
-                        endpoint_final_trigger_mask.sum().item()
-                    )
-                    endpoint_without_final_trigger = max(
-                        0, endpoint_flips - endpoint_final_trigger
-                    )
-                    old_global_trigger = int(old_global_trigger_mask.sum().item())
-                    post_bop_violations = int(((local_weight * m) > self.tau).sum().item())
-
-                    layer_steps = max(1, self._diag_layer_steps.get(key, 0))
-                    mean_grad_abs = float(
-                        self._diag_grad_abs_sum.get(
-                            key,
-                            torch.tensor(0.0),
-                        ).item()
-                    ) / layer_steps
-                    mean_m_abs_during = float(
-                        self._diag_m_abs_sum.get(
-                            key,
-                            torch.tensor(0.0),
-                        ).item()
-                    ) / layer_steps
-                    final_m_abs = float(m.abs().mean().item())
-                    final_m_max = float(m.abs().max().item())
-                    above_tau_abs = int((m.abs() > self.tau).sum().item())
-
-                    repeat_current_rate = (
-                        repeat_intersection / endpoint_flips
-                        if endpoint_flips > 0 and prev_flip is not None
-                        else 0.0
-                    )
-                    repeat_prev_rate = (
-                        repeat_intersection / prev_endpoint_flips
-                        if prev_endpoint_flips > 0
-                        else 0.0
-                    )
-                    repeat_union = (
-                        endpoint_flips
-                        + prev_endpoint_flips
-                        - repeat_intersection
-                    )
-                    repeat_jaccard = (
-                        repeat_intersection / repeat_union
-                        if repeat_union > 0
-                        else 0.0
-                    )
-
-                    diag_layers[key] = {
-                        "numel": numel,
-                        "raw_flip_events": raw_flip_events,
-                        "endpoint_flips": endpoint_flips,
-                        "transmitted_votes": transmitted_votes,
-                        "endpoint_final_trigger": endpoint_final_trigger,
-                        "endpoint_without_final_trigger": endpoint_without_final_trigger,
-                        "extra_flip_events": max(0, raw_flip_events - endpoint_flips),
-                        "prev_endpoint_flips": prev_endpoint_flips,
-                        "repeat_intersection": repeat_intersection,
-                        "repeat_current_rate": repeat_current_rate,
-                        "repeat_prev_rate": repeat_prev_rate,
-                        "repeat_jaccard": repeat_jaccard,
-                        "old_global_trigger": old_global_trigger,
-                        "post_bop_violations": post_bop_violations,
-                        "above_tau_abs": above_tau_abs,
-                        "mean_grad_abs": mean_grad_abs,
-                        "mean_m_abs_during": mean_m_abs_during,
-                        "final_m_abs": final_m_abs,
-                        "final_m_max": final_m_max,
-                    }
-
-                    total_binary += numel
-                    total_raw_flip_events += raw_flip_events
-                    total_endpoint_flips += endpoint_flips
-                    total_transmitted_votes += transmitted_votes
-                    total_stale_endpoint_flips += endpoint_without_final_trigger
-                    total_old_global_trigger += old_global_trigger
-                    total_post_bop_violations += post_bop_violations
-                    weighted_abs_m_sum += final_m_abs * numel
-                    weighted_grad_abs_sum += mean_grad_abs * numel
-
-            else:
-                stats_model[key] = tensor.detach().cpu()
-
         if self.diag:
-            steps = self._diag_steps
-            ema_new_mass = 1.0 - ((1.0 - self.gamma) ** steps) if steps > 0 else 0.0
-            mean_abs_m = weighted_abs_m_sum / max(1, total_binary)
-            mean_abs_grad = weighted_grad_abs_sum / max(1, total_binary)
-            endpoint_rate = total_endpoint_flips / max(1, total_binary)
-            transmitted_vote_rate = total_transmitted_votes / max(1, total_binary)
-            transmitted_fraction = (
-                total_transmitted_votes / total_endpoint_flips
-                if total_endpoint_flips > 0
-                else 0.0
+            self._log(
+                f"CLIENT_STATE_MAJ round={round_number} id={id} gamma={self.gamma:.3e} "
+                f"binary={total_binary} endpoint={total_endpoint} "
+                f"endpoint_rate={total_endpoint/max(1,total_binary):.6e} "
+                f"events={total_votes} event_rate={total_votes/max(1,total_binary):.6e} "
+                f"event_endpoint_jaccard={total_intersection/max(1,total_union):.6f}"
             )
-            endpoint_final_trigger = max(
-                0, total_endpoint_flips - total_stale_endpoint_flips
+            self._log(
+                f"GAP_RICE_UPLINK round={round_number} id={id} "
+                f"layers={rice_layers} events={total_votes} "
+                f"valid_bits={rice_valid_bits} data_bytes={rice_data_bytes} "
+                f"fixed_index_bits={fixed_index_bits} "
+                f"codec_ratio={fixed_index_bits/max(1,rice_valid_bits):.4f}x"
             )
-            endpoint_final_trigger_fraction = (
-                endpoint_final_trigger / total_endpoint_flips
-                if total_endpoint_flips > 0
-                else 0.0
+            self._log(
+                f"BETA_UPLINK round={round_number} id={id} mode={self.beta_comm_mode} "
+                f"numel={beta_numel} payload_KiB={beta_payload_bytes/1024.0:.3f} "
+                f"representation=absolute adam_state_local=1"
             )
-            raw_rate = total_raw_flip_events / max(1, total_binary)
-            trigger_rate = total_old_global_trigger / max(1, total_binary)
-            violation_rate = total_post_bop_violations / max(1, total_binary)
-
-            repeat_current_rate = (
-                total_repeat_intersection / total_endpoint_flips
-                if repeat_prev_available and total_endpoint_flips > 0
-                else 0.0
-            )
-            repeat_prev_rate = (
-                total_repeat_intersection / total_prev_endpoint
-                if repeat_prev_available and total_prev_endpoint > 0
-                else 0.0
-            )
-            repeat_union = (
-                total_endpoint_flips
-                + total_prev_endpoint
-                - total_repeat_intersection
-            )
-            repeat_jaccard = (
-                total_repeat_intersection / repeat_union
-                if repeat_prev_available and repeat_union > 0
-                else 0.0
-            )
-            new_endpoint = max(
-                0, total_endpoint_flips - total_repeat_intersection
-            )
-            dropped_endpoint = max(
-                0, total_prev_endpoint - total_repeat_intersection
-            )
-
-            self._diag_log(
-                f"CLIENT round={round_number} id={id} gamma={self.gamma:.3e} rho={self.rho:.3e} "
-                f"steps={steps} ema_new_mass={ema_new_mass:.6f} "
-                f"raw_flip_events={total_raw_flip_events} raw_rate={raw_rate:.6e} "
-                f"endpoint_flips={total_endpoint_flips} endpoint_rate={endpoint_rate:.6e} "
-                f"transmitted_votes={total_transmitted_votes} transmitted_vote_rate={transmitted_vote_rate:.6e} "
-                f"transmitted_fraction={transmitted_fraction:.6f} "
-                f"endpoint_final_trigger={endpoint_final_trigger} "
-                f"endpoint_final_trigger_fraction={endpoint_final_trigger_fraction:.6f} "
-                f"endpoint_without_final_trigger={total_stale_endpoint_flips} "
-                f"extra_flip_events={max(0, total_raw_flip_events - total_endpoint_flips)} "
-                f"old_global_trigger={total_old_global_trigger} trigger_rate={trigger_rate:.6e} "
-                f"post_bop_violations={total_post_bop_violations} violation_rate={violation_rate:.6e} "
-                f"repeat_prev_available={repeat_prev_available} repeat_intersection={total_repeat_intersection} "
-                f"repeat_current_rate={repeat_current_rate:.6f} repeat_prev_rate={repeat_prev_rate:.6f} "
-                f"repeat_jaccard={repeat_jaccard:.6f} new_endpoint={new_endpoint} dropped_endpoint={dropped_endpoint} "
-                f"mean|m|={mean_abs_m:.3e} mean|g|={mean_abs_grad:.3e} tau={self.tau:.3e}"
-            )
-
-            if self._diag_layer_log_enabled(round_number):
-                for key, d in diag_layers.items():
-                    self._diag_log(
-                        f"CLIENT_LAYER round={round_number} id={id} layer={key} n={d['numel']} "
-                        f"raw={d['raw_flip_events']} endpoint={d['endpoint_flips']} "
-                        f"sent={d['transmitted_votes']} "
-                        f"endpoint_final_trigger={d['endpoint_final_trigger']} "
-                        f"endpoint_without_final_trigger={d['endpoint_without_final_trigger']} "
-                        f"extra={d['extra_flip_events']} "
-                        f"prev_endpoint={d['prev_endpoint_flips']} repeat={d['repeat_intersection']} "
-                        f"repeat_rate={d['repeat_current_rate']:.4f} repeat_jaccard={d['repeat_jaccard']:.4f} "
-                        f"old_trigger={d['old_global_trigger']} bop_violation={d['post_bop_violations']} "
-                        f"|m|>tau={d['above_tau_abs']} mean|m|={d['final_m_abs']:.3e} "
-                        f"max|m|={d['final_m_max']:.3e} mean|g|={d['mean_grad_abs']:.3e}"
+            if self._layer_log_enabled(round_number):
+                for key, d in layer_diag.items():
+                    self._log(
+                        f"CLIENT_LAYER round={round_number} id={id} layer={key} "
+                        f"n={d['n']} steps={d['steps']} endpoint={d['endpoint']} "
+                        f"events={d['votes']} jaccard={d['jaccard']:.4f} "
+                        f"fallback={d['fallback']}"
                     )
-
-        self.has_local_update = True
 
         packet = {
             "client_id": id,
             "tensors": tensors,
+            "beta_model": beta_model,
             "stats_model": stats_model,
         }
-
+        if sync_round:
+            packet["momentum_ternary_model"] = momentum_ternary_model
+            if self.diag:
+                self._log(
+                    f"M_SYNC_UPLINK round={round_number} id={id} "
+                    f"layers={sync_layers} payload_MiB={sync_payload_bytes/(1024.0**2):.3f} "
+                    f"nonzero_rate={sync_nonzero/max(1,total_binary):.6e} "
+                    f"mean_rel_rmse={sync_rel_rmse_sum/max(1,sync_layers):.3e}"
+                )
         if self.diag:
             packet["diag"] = {
                 "round": round_number,
                 "steps": self._diag_steps,
-                "gamma": self.gamma,
-                "rho": self.rho,
+                "endpoint_flips": total_endpoint,
+                "transmitted_votes": total_votes,
                 "total_binary": total_binary,
-                "raw_flip_events": total_raw_flip_events,
-                "endpoint_flips": total_endpoint_flips,
-                "transmitted_votes": total_transmitted_votes,
-                "endpoint_final_trigger": endpoint_final_trigger,
-                "endpoint_final_trigger_fraction": endpoint_final_trigger_fraction,
-                "endpoint_without_final_trigger": total_stale_endpoint_flips,
-                "repeat_prev_available": repeat_prev_available,
-                "repeat_intersection": total_repeat_intersection,
-                "repeat_current_rate": repeat_current_rate,
-                "repeat_jaccard": repeat_jaccard,
-                "layers": diag_layers,
             }
 
-        self._diag_reset_local_round()
+        self._diag_steps = 0
+        self._diag_raw_flips = {}
+        self._diag_grad_abs = {}
+        self.has_local_update = True
         return packet
 
     def unpack_client_model(self, packed_model):
-        return packed_model
+        """
+        Decode Gap+Rice sparse event indices after the packet has already
+        crossed the framework communication/profiler boundary.
+
+        The returned structure intentionally restores the legacy
+            {"idx": [...]}
+        representation so aggregate() does not need any algorithmic change.
+
+        Backward compatibility:
+            legacy {"idx": [...]} entries are accepted unchanged.
+        """
+        packet = packed_model
+
+        tensors = packet.get("tensors", {})
+        decoded_tensors = {}
+
+        for key, entry in tensors.items():
+
+            # New compact wire representation.
+            if (
+                isinstance(entry, (tuple, list))
+                and len(entry) == 5
+                and entry[0] == "gr1"
+            ):
+                idx = self._decode_sparse_indices_gap_rice(entry)
+
+                # Defensive lossless/order checks.
+                if idx.numel() > 1 and bool((idx[1:] <= idx[:-1]).any()):
+                    raise RuntimeError(
+                        f"Gap-Rice decode produced non-increasing indices for {key}."
+                    )
+
+                decoded_tensors[key] = {
+                    "idx": idx.tolist()
+                }
+                continue
+
+            # Legacy representation for old checkpoints/tests.
+            if isinstance(entry, dict) and "idx" in entry:
+                decoded_tensors[key] = entry
+                continue
+
+            raise ValueError(
+                f"Unsupported sparse tensor payload for layer {key}: "
+                f"{type(entry).__name__}"
+            )
+
+        # Shallow-copy only the outer packet. Other sidecars are unchanged.
+        decoded_packet = dict(packet)
+        decoded_packet["tensors"] = decoded_tensors
+
+        return decoded_packet
+
+    # -------------------------------------------------------------------------
+    # Diagnostic helpers (server-only; no effect on optimization)
+    # -------------------------------------------------------------------------
+
+    @torch.no_grad()
+    def _diag_sparse_intersection(self, a, b):
+        """Exact intersection size for two sorted unique int64 CPU index tensors."""
+        if a is None or b is None or a.numel() == 0 or b.numel() == 0:
+            return 0
+        a = a.to(device="cpu", dtype=torch.long).view(-1)
+        b = b.to(device="cpu", dtype=torch.long).view(-1)
+        # torch.nonzero-generated event indices are sorted; searchsorted avoids
+        # allocating dense N-bit masks for every client.
+        pos = torch.searchsorted(b, a)
+        valid = pos < b.numel()
+        if not bool(valid.any()):
+            return 0
+        av = a[valid]
+        pv = pos[valid]
+        return int((b[pv] == av).sum().item())
+
+    # -------------------------------------------------------------------------
+    # Server aggregation
+    # -------------------------------------------------------------------------
 
     @torch.no_grad()
     def aggregate(self, clients_models, global_model):
         if len(clients_models) == 0:
             return global_model
 
+        round_number = self._infer_round_number(clients_models)
         k_clients = len(clients_models)
         majority = (k_clients // 2) + 1
 
         gamma = float(self.gamma)
         if not (0.0 < gamma < 1.0):
-            raise ValueError("FedBop server momentum requires 0 < gamma < 1")
+            raise ValueError("FedBop12 requires 0 < gamma < 1")
 
+        # One server EMA update represents K client-event contributions.
+        #
+        # IMPORTANT: calibrate the pseudo-gradient scale ONCE using the initial
+        # gamma. FedBop12 recomputed this denominator using the current gamma,
+        # which exactly cancelled gamma decay in the fresh-evidence term. Here we
+        # preserve the original round-1 strict-majority calibration, but allow
+        # gamma decay to anneal fresh event evidence while increasing memory.
         beta = 1.0 - gamma
         beta_k = beta ** k_clients
+        beta_ref = 1.0 - float(self.initial_gamma)
+        beta_ref_k = beta_ref ** k_clients
         decision_boundary = float(majority) - 0.5
         event_scale = (
-            self.tau
-            * float(k_clients)
-            / ((1.0 - beta_k) * decision_boundary)
+            self.tau * float(k_clients)
+            / ((1.0 - beta_ref_k) * decision_boundary)
         )
+        event_gain = (1.0 - beta_k) / (1.0 - beta_ref_k)
 
         total_binary = 0
         total_union = 0
-        total_vote_requests = 0
-        total_global_flips = 0
-        total_instant_majority_flips = 0
-        total_rescued_by_momentum = 0
-        total_blocked_by_momentum = 0
-        total_no_vote_flips = 0
-        total_support_on_flips = 0
-        total_server_m_abs = 0.0
-        total_server_m_abs_max = 0.0
-        total_aligned_before_sum = 0.0
-        total_aligned_after_sum = 0.0
+        total_votes = 0
+        total_flips = 0
+        total_instant = 0
 
-        total_server_prev_flips = 0
-        total_server_repeat_intersection = 0
-        server_repeat_prev_available = 0
-
-        vote_hist_total = torch.zeros(k_clients + 1, dtype=torch.long)
-
-        pairwise_enabled = (
-            self.diag
-            and k_clients >= 2
-            and k_clients <= self.diag_pairwise_max_clients
-        )
-        pattern_hist_total = (
-            torch.zeros(1 << k_clients, dtype=torch.long)
-            if pairwise_enabled
-            else None
-        )
-
-        client_endpoint_counts = []
-        client_steps = []
-        for _, client_model in clients_models:
-            diag = client_model.get("diag", {})
-            if diag:
-                endpoint_count = int(
-                    diag.get(
-                        "transmitted_votes",
-                        diag.get("endpoint_flips", 0),
-                    )
-                )
-                step_count = int(diag.get("steps", 0))
-            else:
-                endpoint_count = sum(
-                    len(v.get("idx", []))
-                    for v in client_model.get("tensors", {}).values()
-                )
-                step_count = 0
-
-            client_endpoint_counts.append(endpoint_count)
-            client_steps.append(step_count)
-
-        layer_vote_diag = {}
+        # Extended diagnostic accumulators.
+        support_hist_all = torch.zeros(k_clients + 1, dtype=torch.int64)
+        support_hist_flips = torch.zeros(k_clients + 1, dtype=torch.int64)
+        pair_intersections = 0
+        pair_unions = 0
+        same_client_repeat_intersection = 0
+        same_client_repeat_union = 0
+        same_client_current_events = 0
+        server_flip_repeat_intersection = 0
+        server_flip_repeat_union = 0
+        server_current_flips = 0
 
         for key, global_tensor in global_model.items():
             if not torch.is_tensor(global_tensor):
                 continue
-
             if not self._is_binary_param_tensor(key, global_tensor):
                 continue
 
-            numel = global_tensor.numel()
-            global_weight_cpu = self._sign_binary(
-                global_tensor.detach().cpu()
-            ).view(-1)
+            w = self._sign_binary(global_tensor.detach().cpu()).view(-1)
+            n = w.numel()
+            vote_count = torch.zeros(n, dtype=torch.int16, device="cpu")
 
-            vote_count = torch.zeros(
-                numel,
-                dtype=torch.int16,
-                device="cpu",
-            )
-
-            vote_pattern = (
-                torch.zeros(numel, dtype=torch.int16, device="cpu")
-                if pairwise_enabled
-                else None
-            )
-            layer_client_counts = [0] * k_clients
-
-            for client_pos, (_, client_model) in enumerate(clients_models):
-                client_tensors = client_model.get("tensors", {})
-                if key not in client_tensors:
+            for client_label, packet in clients_models:
+                entry = packet.get("tensors", {}).get(key)
+                if entry is None:
                     continue
+                idx_raw = entry.get("idx", [])
+                idx = torch.as_tensor(idx_raw, dtype=torch.long, device="cpu").view(-1)
 
-                indices = client_tensors[key].get("idx", [])
-                if len(indices) == 0:
-                    continue
-
-                indices = torch.as_tensor(
-                    indices,
-                    dtype=torch.long,
-                    device="cpu",
-                )
-                vote_count[indices] += 1
-                layer_client_counts[client_pos] = len(indices)
-
-                if vote_pattern is not None:
-                    bit_value = 1 << client_pos
-                    vote_pattern[indices] = torch.bitwise_or(
-                        vote_pattern[indices],
-                        torch.tensor(bit_value, dtype=torch.int16),
+                if self.diag and self.diag_extended:
+                    client_id = packet.get("client_id", client_label)
+                    state_key = (str(client_id), key)
+                    prev = self._diag_prev_client_events.get(state_key)
+                    if prev is not None and int(prev[0]) == int(round_number) - 1:
+                        prev_idx = prev[1]
+                        inter = self._diag_sparse_intersection(idx, prev_idx)
+                        same_client_repeat_intersection += inter
+                        same_client_repeat_union += int(idx.numel()) + int(prev_idx.numel()) - inter
+                        same_client_current_events += int(idx.numel())
+                    self._diag_prev_client_events[state_key] = (
+                        int(round_number), idx.clone()
                     )
 
+                if idx.numel() == 0:
+                    continue
+                vote_count[idx] += 1
+
             server_m = self.server_m_buffers.get(key)
-            if (
-                server_m is None
-                or server_m.shape != global_weight_cpu.shape
-            ):
-                server_m = torch.zeros_like(
-                    global_weight_cpu,
-                    dtype=torch.float32,
-                )
+            if server_m is None or server_m.shape != w.shape:
+                server_m = torch.zeros_like(w, dtype=torch.float32)
             else:
                 server_m = server_m.to(dtype=torch.float32, device="cpu")
 
-            aligned_before = global_weight_cpu.to(torch.float32) * server_m
+            vote_fraction = vote_count.to(torch.float32) / float(k_clients)
+            pseudo_grad = w.to(torch.float32) * vote_fraction * float(event_scale)
 
-            vote_fraction = (
-                vote_count.to(torch.float32) / float(k_clients)
-            )
-            mean_pseudo_grad = (
-                global_weight_cpu.to(torch.float32)
-                * vote_fraction
-                * float(event_scale)
-            )
-
-            server_m.mul_(beta_k).add_(
-                mean_pseudo_grad,
-                alpha=(1.0 - beta_k),
-            )
+            # Effective aligned fresh-evidence increment per support count c is:
+            #   tau * (c / decision_boundary) * event_gain
+            # with event_gain=1 in phase 1 and naturally decreasing after gamma
+            # decay. This restores Bop-like annealing at the server.
+            server_m.mul_(beta_k).add_(pseudo_grad, alpha=(1.0 - beta_k))
             self.server_m_buffers[key] = server_m
 
-            aligned_after = global_weight_cpu.to(torch.float32) * server_m
-            flip_mask_cpu = aligned_after > self.tau
-            instant_flip_mask = vote_count >= majority
-            current_union = vote_count > 0
+            # Server Bop condition, again w*M > tau.
+            flip_mask_cpu = w.to(torch.float32) * server_m > self.tau
+            instant_mask = vote_count >= majority
 
-            rescued_by_momentum = flip_mask_cpu & (~instant_flip_mask)
-            blocked_by_momentum = instant_flip_mask & (~flip_mask_cpu)
-            no_vote_flips = flip_mask_cpu & (~current_union)
+            if self.diag and self.diag_extended:
+                # Current-round support distribution.
+                support_hist_all += torch.bincount(
+                    vote_count.to(torch.long), minlength=k_clients + 1
+                )[: k_clients + 1]
+                if bool(flip_mask_cpu.any()):
+                    support_hist_flips += torch.bincount(
+                        vote_count[flip_mask_cpu].to(torch.long),
+                        minlength=k_clients + 1,
+                    )[: k_clients + 1]
 
-            global_flips = int(flip_mask_cpu.sum().item())
-            instant_majority_flips = int(instant_flip_mask.sum().item())
-            union_n = int(current_union.sum().item())
-            vote_requests = int(vote_count.sum().item())
-            rescued_n = int(rescued_by_momentum.sum().item())
-            blocked_n = int(blocked_by_momentum.sum().item())
-            no_vote_n = int(no_vote_flips.sum().item())
-            support_on_flips = (
-                int(vote_count[flip_mask_cpu].sum().item())
-                if global_flips > 0
-                else 0
-            )
-
-            hist = torch.bincount(
-                vote_count.to(torch.long),
-                minlength=k_clients + 1,
-            )
-            vote_hist_total += hist
-
-            layer_pairwise = None
-            if vote_pattern is not None:
-                pattern_hist = torch.bincount(
-                    vote_pattern.to(torch.long),
-                    minlength=1 << k_clients,
-                )
-                pattern_hist_total += pattern_hist
-                layer_pairwise = self._diag_pairwise_jaccard_from_pattern_hist(
-                    pattern_hist,
-                    layer_client_counts,
-                    k_clients,
+                # Exact micro-Jaccard across all client pairs, without building K
+                # dense masks: each coordinate with support c contributes C(c,2)
+                # pairwise intersections and C(K,2)-C(K-c,2) pairwise unions.
+                c64 = vote_count.to(torch.int64)
+                pair_intersections += int(((c64 * (c64 - 1)) // 2).sum().item())
+                kmc = int(k_clients) - c64
+                total_pairs = int(k_clients * (k_clients - 1) // 2)
+                pair_unions += int(
+                    (total_pairs - ((kmc * (kmc - 1)) // 2)).sum().item()
                 )
 
-            current_server_flip = flip_mask_cpu.clone()
-            prev_server_flip = self._diag_prev_server_flip_masks.get(key)
-            server_repeat_intersection = 0
-            prev_server_flips = 0
-            if (
-                prev_server_flip is not None
-                and prev_server_flip.shape == current_server_flip.shape
-            ):
-                server_repeat_prev_available = 1
-                prev_server_flips = int(prev_server_flip.sum().item())
-                server_repeat_intersection = int(
-                    (current_server_flip & prev_server_flip).sum().item()
+                # Consecutive server-flip overlap. Re-flipping the same coordinate
+                # on consecutive rounds is literal binary backtracking/churn.
+                prev_flip = self._diag_prev_server_flips.get(key)
+                if prev_flip is not None and int(prev_flip[0]) == int(round_number) - 1:
+                    prev_mask = prev_flip[1]
+                    inter = int((flip_mask_cpu & prev_mask).sum().item())
+                    union = int((flip_mask_cpu | prev_mask).sum().item())
+                    server_flip_repeat_intersection += inter
+                    server_flip_repeat_union += union
+                    server_current_flips += int(flip_mask_cpu.sum().item())
+                self._diag_prev_server_flips[key] = (
+                    int(round_number), flip_mask_cpu.clone()
                 )
-                total_server_prev_flips += prev_server_flips
-                total_server_repeat_intersection += server_repeat_intersection
-
-            self._diag_prev_server_flip_masks[key] = current_server_flip
-
-            total_binary += numel
-            total_union += union_n
-            total_vote_requests += vote_requests
-            total_global_flips += global_flips
-            total_instant_majority_flips += instant_majority_flips
-            total_rescued_by_momentum += rescued_n
-            total_blocked_by_momentum += blocked_n
-            total_no_vote_flips += no_vote_n
-            total_support_on_flips += support_on_flips
-            total_server_m_abs += float(server_m.abs().sum().item())
-            total_server_m_abs_max = max(
-                total_server_m_abs_max,
-                float(server_m.abs().max().item()),
-            )
-            total_aligned_before_sum += float(aligned_before.sum().item())
-            total_aligned_after_sum += float(aligned_after.sum().item())
-
-            layer_vote_diag[key] = {
-                "numel": numel,
-                "union": union_n,
-                "vote_requests": vote_requests,
-                "instant_majority_flips": instant_majority_flips,
-                "global_flips": global_flips,
-                "rescued_by_momentum": rescued_n,
-                "blocked_by_momentum": blocked_n,
-                "no_vote_flips": no_vote_n,
-                "support_on_flips": support_on_flips,
-                "hist": hist.tolist(),
-                "pairwise": layer_pairwise,
-                "prev_server_flips": prev_server_flips,
-                "server_repeat_intersection": server_repeat_intersection,
-                "mean_abs_server_m": float(server_m.abs().mean().item()),
-                "max_abs_server_m": float(server_m.abs().max().item()),
-                "mean_aligned_before": float(aligned_before.mean().item()),
-                "mean_aligned_after": float(aligned_after.mean().item()),
-            }
 
             if flip_mask_cpu.any():
-                flip_mask = flip_mask_cpu.to(
-                    device=global_tensor.device,
-                    dtype=torch.bool,
-                )
-                global_tensor.view(-1)[flip_mask] *= -1
-
+                mask = flip_mask_cpu.to(device=global_tensor.device, dtype=torch.bool)
+                global_tensor.view(-1)[mask] *= -1
             global_tensor.copy_(self._sign_binary(global_tensor))
 
-        stats_dispersion = {
-            "bias": [],
-            "running_mean": [],
-            "running_var": [],
-        }
+            if self.diag:
+                total_binary += n
+                total_union += int((vote_count > 0).sum().item())
+                total_votes += int(vote_count.sum().item())
+                total_flips += int(flip_mask_cpu.sum().item())
+                total_instant += int(instant_mask.sum().item())
 
+        # Aggregate the real-valued global model state. BN beta uses the
+        # quantized absolute-value path; decoding is back to FP32 before averaging.
+        # Other non-binary tensors retain the generic compatibility path.
+        beta_decoded_values = 0
         for key, global_tensor in global_model.items():
             if not torch.is_tensor(global_tensor):
                 continue
-
             if self._is_binary_param_tensor(key, global_tensor):
                 continue
 
-            received_tensors = []
-            for _, client_model in clients_models:
-                stats_model = client_model.get("stats_model", {})
-                if key in stats_model:
-                    received_tensors.append(stats_model[key])
+            if self._is_bn_beta_key(key):
+                received_beta = []
+                for _, packet in clients_models:
+                    entry = packet.get("beta_model", {}).get(key)
+                    if entry is not None:
+                        received_beta.append(
+                            self._decode_wire_tensor(
+                                entry,
+                                device=global_tensor.device,
+                                dtype=torch.float32,
+                            )
+                        )
+                if received_beta:
+                    acc = torch.zeros_like(
+                        global_tensor, dtype=torch.float32, device=global_tensor.device
+                    )
+                    for beta_value in received_beta:
+                        acc.add_(beta_value)
+                    updated = acc / float(len(received_beta))
+                    global_tensor.copy_(updated.to(dtype=global_tensor.dtype))
+                    beta_decoded_values += int(global_tensor.numel()) * len(received_beta)
+                continue
 
-            if len(received_tensors) == 0:
+            received = []
+            for _, packet in clients_models:
+                stats = packet.get("stats_model", {})
+                if key in stats:
+                    received.append(stats[key])
+            if not received:
                 continue
 
             if torch.is_floating_point(global_tensor):
-                if self.diag and len(received_tensors) > 1:
-                    stack = torch.stack([
-                        tensor.to(dtype=torch.float32, device="cpu")
-                        for tensor in received_tensors
-                    ])
-                    mean = stack.mean(dim=0)
-                    mad = (stack - mean).abs().mean().item()
-
-                    lname = key.lower()
-                    if "running_mean" in lname:
-                        stats_dispersion["running_mean"].append(mad)
-                    elif "running_var" in lname:
-                        stats_dispersion["running_var"].append(mad)
-                    elif "bias" in lname:
-                        stats_dispersion["bias"].append(mad)
-
-                tensor_sum = torch.zeros_like(
-                    global_tensor,
-                    dtype=torch.float32,
-                    device=global_tensor.device,
+                acc = torch.zeros_like(
+                    global_tensor, dtype=torch.float32, device=global_tensor.device
                 )
-                for tensor in received_tensors:
-                    tensor_sum.add_(
-                        tensor.to(
-                            device=global_tensor.device,
-                            dtype=torch.float32,
-                        )
-                    )
-
-                global_tensor.copy_(
-                    (tensor_sum / len(received_tensors)).to(
-                        dtype=global_tensor.dtype
-                    )
-                )
+                for x in received:
+                    acc.add_(x.to(device=global_tensor.device, dtype=torch.float32))
+                global_tensor.copy_((acc / len(received)).to(dtype=global_tensor.dtype))
             else:
-                max_tensor = received_tensors[0].to(
-                    device=global_tensor.device,
-                    dtype=global_tensor.dtype,
+                value = received[0].to(
+                    device=global_tensor.device, dtype=global_tensor.dtype
                 )
-                for tensor in received_tensors[1:]:
-                    max_tensor = torch.maximum(
-                        max_tensor,
-                        tensor.to(
-                            device=global_tensor.device,
-                            dtype=global_tensor.dtype,
-                        ),
+                for x in received[1:]:
+                    value = torch.maximum(
+                        value,
+                        x.to(device=global_tensor.device, dtype=global_tensor.dtype),
                     )
-                global_tensor.copy_(max_tensor)
+                global_tensor.copy_(value)
+
+        # Build client-EMA consensus on its own cadence. If this round is also a
+        # gamma-decay boundary, pack_server_model() will decay gamma AFTER this
+        # round's training/aggregation and broadcast the shared state with the new
+        # gamma. On sync-only rounds, gamma is left unchanged.
+        if self._is_sync_round(round_number):
+            self._prepare_momentum_consensus(clients_models, global_model, round_number)
 
         if self.diag:
-            try:
-                round_number = int(self.server.round_number)
-            except Exception:
-                round_number = -1
-
-            union_rate = total_union / max(1, total_binary)
-            global_flip_rate = total_global_flips / max(1, total_binary)
-            instant_majority_rate = (
-                total_instant_majority_flips / max(1, total_binary)
+            self._log(
+                f"SERVER_BOP_ANNEAL round={round_number} K={k_clients} gamma={self.gamma:.3e} initial_gamma={self.initial_gamma:.3e} sync_every={self.sync_rounds} decay_every={self.decay_rounds} "
+                f"tau={self.tau:.3e} event_scale_fixed={event_scale:.3e} event_gain={event_gain:.6e} "
+                f"effective_per_vote={(self.tau/decision_boundary)*event_gain:.6e} "
+                f"union_rate={total_union/max(1,total_binary):.6e} "
+                f"mean_support={total_votes/max(1,total_union):.3f} "
+                f"instant_majority_rate={total_instant/max(1,total_binary):.6e} "
+                f"global_flip_rate={total_flips/max(1,total_binary):.6e}"
             )
-            mean_support = total_vote_requests / max(1, total_union)
-            mean_support_flipped = (
-                total_support_on_flips / max(1, total_global_flips)
-            )
-            mean_abs_server_m = total_server_m_abs / max(1, total_binary)
-            mean_aligned_before = total_aligned_before_sum / max(1, total_binary)
-            mean_aligned_after = total_aligned_after_sum / max(1, total_binary)
 
-            pairwise = (
-                self._diag_pairwise_jaccard_from_pattern_hist(
-                    pattern_hist_total,
-                    client_endpoint_counts,
-                    k_clients,
+            if self.diag_extended:
+                flip_hist_total = int(support_hist_flips.sum().item())
+                weighted_flip_support = int(
+                    (support_hist_flips * torch.arange(k_clients + 1, dtype=torch.int64)).sum().item()
                 )
-                if pairwise_enabled
-                else None
-            )
-
-            server_repeat_current_rate = (
-                total_server_repeat_intersection / total_global_flips
-                if server_repeat_prev_available and total_global_flips > 0
-                else 0.0
-            )
-            server_repeat_union = (
-                total_global_flips
-                + total_server_prev_flips
-                - total_server_repeat_intersection
-            )
-            server_repeat_jaccard = (
-                total_server_repeat_intersection / server_repeat_union
-                if server_repeat_prev_available and server_repeat_union > 0
-                else 0.0
-            )
-            server_new_flips = max(
-                0, total_global_flips - total_server_repeat_intersection
-            )
-
-            vote_parts = [
-                f"v{i}={int(vote_hist_total[i].item())}"
-                for i in range(1, k_clients + 1)
-            ]
-
-            endpoint_avg = (
-                sum(client_endpoint_counts) / len(client_endpoint_counts)
-                if client_endpoint_counts
-                else 0.0
-            )
-            endpoint_min = min(client_endpoint_counts) if client_endpoint_counts else 0
-            endpoint_max = max(client_endpoint_counts) if client_endpoint_counts else 0
-            steps_avg = (
-                sum(client_steps) / len(client_steps)
-                if client_steps
-                else 0.0
-            )
-
-            self._diag_log(
-                f"SERVER_BOP round={round_number} K={k_clients} majority={majority} "
-                f"evidence=all_endpoint_positive_only boundary={decision_boundary:.1f} "
-                f"gamma={self.gamma:.3e} tau={self.tau:.3e} betaK={beta_k:.6f} "
-                f"event_scale={event_scale:.3e} "
-                f"client_steps_avg={steps_avg:.1f} client_vote_avg={endpoint_avg:.1f} "
-                f"client_vote_min={endpoint_min} client_vote_max={endpoint_max} "
-                f"union={total_union} union_rate={union_rate:.6e} "
-                f"mean_support={mean_support:.3f} "
-                f"instant_majority_flips={total_instant_majority_flips} "
-                f"instant_majority_rate={instant_majority_rate:.6e} "
-                f"global_flips={total_global_flips} global_flip_rate={global_flip_rate:.6e} "
-                f"rescued_by_momentum={total_rescued_by_momentum} "
-                f"blocked_by_momentum={total_blocked_by_momentum} "
-                f"no_vote_flips={total_no_vote_flips} "
-                f"mean_support_flipped={mean_support_flipped:.3f} "
-                f"mean|M_server|={mean_abs_server_m:.3e} "
-                f"max|M_server|={total_server_m_abs_max:.3e} "
-                f"mean_aligned_before={mean_aligned_before:.3e} "
-                f"mean_aligned_after={mean_aligned_after:.3e} "
-                f"server_repeat={total_server_repeat_intersection} "
-                f"server_repeat_rate={server_repeat_current_rate:.6f} "
-                f"server_repeat_jaccard={server_repeat_jaccard:.6f} "
-                f"server_new_flips={server_new_flips} "
-                + (
-                    f"pair_jaccard_mean={pairwise['mean']:.6f} "
-                    f"pair_jaccard_median={pairwise['median']:.6f} "
-                    f"pair_jaccard_min={pairwise['min']:.6f} "
-                    f"pair_jaccard_max={pairwise['max']:.6f} "
-                    if pairwise is not None
-                    else "pair_jaccard=disabled "
+                low_support_flips = int(support_hist_flips[:majority].sum().item())
+                zero_support_flips = int(support_hist_flips[0].item())
+                micro_pair_jaccard = pair_intersections / max(1, pair_unions)
+                same_client_repeat_jaccard = (
+                    same_client_repeat_intersection / max(1, same_client_repeat_union)
                 )
-                + " ".join(vote_parts)
-            )
+                same_client_repeat_rate = (
+                    same_client_repeat_intersection / max(1, same_client_current_events)
+                )
+                server_flip_repeat_jaccard = (
+                    server_flip_repeat_intersection / max(1, server_flip_repeat_union)
+                )
+                server_flip_repeat_rate = (
+                    server_flip_repeat_intersection / max(1, server_current_flips)
+                )
 
-            if self._diag_layer_log_enabled(max(1, round_number)):
-                for key, d in layer_vote_diag.items():
-                    hist = d["hist"]
-                    hist_text = ",".join(
-                        f"{i}:{hist[i]}"
-                        for i in range(1, len(hist))
-                    )
-                    pair_text = ""
-                    if d.get("pairwise") is not None:
-                        p = d["pairwise"]
-                        pair_text = (
-                            f" pair_jaccard_mean={p['mean']:.4f}"
-                            f" pair_jaccard_median={p['median']:.4f}"
-                            f" pair_jaccard_min={p['min']:.4f}"
-                            f" pair_jaccard_max={p['max']:.4f}"
-                        )
-
-                    mean_support_layer = (
-                        d["vote_requests"] / max(1, d["union"])
-                    )
-                    mean_support_flipped_layer = (
-                        d["support_on_flips"] / max(1, d["global_flips"])
-                    )
-
-                    self._diag_log(
-                        f"SERVER_BOP_LAYER round={round_number} layer={key} n={d['numel']} "
-                        f"union={d['union']} mean_support={mean_support_layer:.3f} "
-                        f"instant_majority_flips={d['instant_majority_flips']} "
-                        f"global_flips={d['global_flips']} "
-                        f"rescued_by_momentum={d['rescued_by_momentum']} "
-                        f"blocked_by_momentum={d['blocked_by_momentum']} "
-                        f"no_vote_flips={d['no_vote_flips']} "
-                        f"mean_support_flipped={mean_support_flipped_layer:.3f} "
-                        f"mean|M|={d['mean_abs_server_m']:.3e} "
-                        f"max|M|={d['max_abs_server_m']:.3e} "
-                        f"aligned_before={d['mean_aligned_before']:.3e} "
-                        f"aligned_after={d['mean_aligned_after']:.3e} "
-                        f"prev_server_flips={d['prev_server_flips']} "
-                        f"server_repeat={d['server_repeat_intersection']} "
-                        f"votes=[{hist_text}]" + pair_text
-                    )
-
-            bias_mad = (
-                sum(stats_dispersion["bias"]) / len(stats_dispersion["bias"])
-                if stats_dispersion["bias"]
-                else 0.0
-            )
-            mean_mad = (
-                sum(stats_dispersion["running_mean"])
-                / len(stats_dispersion["running_mean"])
-                if stats_dispersion["running_mean"]
-                else 0.0
-            )
-            var_mad = (
-                sum(stats_dispersion["running_var"])
-                / len(stats_dispersion["running_var"])
-                if stats_dispersion["running_var"]
-                else 0.0
-            )
-            self._diag_log(
-                f"STATS round={round_number} client_MAD beta={bias_mad:.3e} "
-                f"running_mean={mean_mad:.3e} running_var={var_mad:.3e}"
-            )
+                hist_all_text = ",".join(
+                    f"c{i}={int(support_hist_all[i].item())}" for i in range(k_clients + 1)
+                )
+                hist_flip_text = ",".join(
+                    f"c{i}={int(support_hist_flips[i].item())}" for i in range(k_clients + 1)
+                )
+                self._log(
+                    f"EVENT_ID_DIAG round={round_number} "
+                    f"cross_client_micro_jaccard={micro_pair_jaccard:.6e} "
+                    f"same_client_repeat_jaccard={same_client_repeat_jaccard:.6e} "
+                    f"same_client_repeat_rate={same_client_repeat_rate:.6e}"
+                )
+                self._log(
+                    f"SERVER_FLIP_DIAG round={round_number} "
+                    f"mean_current_support_on_flips={weighted_flip_support/max(1,flip_hist_total):.6f} "
+                    f"low_support_flip_rate={low_support_flips/max(1,flip_hist_total):.6e} "
+                    f"zero_support_flip_rate={zero_support_flips/max(1,flip_hist_total):.6e} "
+                    f"consecutive_reflip_rate={server_flip_repeat_rate:.6e} "
+                    f"consecutive_reflip_jaccard={server_flip_repeat_jaccard:.6e}"
+                )
+                self._log(
+                    f"EVENT_SUPPORT_HIST round={round_number} {hist_all_text}"
+                )
+                self._log(
+                    f"FLIP_SUPPORT_HIST round={round_number} {hist_flip_text}"
+                )
 
         return global_model
+
+    # -------------------------------------------------------------------------
+    # Server -> client model/state update
+    # -------------------------------------------------------------------------
 
     @torch.no_grad()
     def pack_server_model(self, raw_model):
         bin_model = {}
         stats_model = {}
+        beta_model = {}
+        beta_payload_bytes = 0
+        beta_numel = 0
+
+        # Binary downlink diagnostics.  These counters describe only the
+        # authoritative global binary state; beta/stat/momentum sidecars keep
+        # their existing codecs and accounting unchanged.
+        binary_numel = 0
+        binary_flip_events = 0
+        binary_rice_valid_bits = 0
+        binary_rice_data_bytes = 0
+        binary_snapshot_data_bytes = 0
+        binary_selected_pickle_bytes = 0
+        binary_rice_layers = 0
+        binary_snapshot_layers = 0
+        binary_snapshot_fallback_layers = 0
+        binary_layer_diag = []
 
         for key, tensor in raw_model.items():
             if not torch.is_tensor(tensor):
                 continue
-
             if self._is_binary_param_tensor(key, tensor):
-                bin_model[key] = self._sign_binary(
-                    tensor.detach().cpu()
-                )
+                current_sign = self._sign_binary(tensor.detach().cpu()).contiguous()
+                previous_sign = self._server_downlink_prev_binary.get(key)
 
-            else:
-                stats_model[key] = tensor.detach().cpu()
+                entry, cdiag = self._encode_server_binary_wire(
+                    current_sign=current_sign,
+                    previous_sign=previous_sign,
+                )
+                bin_model[key] = entry
+
+                # Advance the server's delta base only after the exact packet
+                # entry has been constructed.  All clients receive this same
+                # authoritative broadcast in the current FedWork protocol.
+                self._server_downlink_prev_binary[key] = current_sign.clone()
+
+                binary_numel += int(current_sign.numel())
+                binary_flip_events += int(cdiag["events"])
+                binary_rice_valid_bits += int(cdiag["rice_valid_bits"])
+                binary_rice_data_bytes += int(cdiag["rice_data_bytes"])
+                binary_snapshot_data_bytes += int(cdiag["snapshot_data_bytes"])
+                binary_selected_pickle_bytes += int(cdiag["selected_pickle_bytes"])
+                if cdiag["mode"] == "rice_delta":
+                    binary_rice_layers += 1
+                elif cdiag["mode"] == "snapshot_fallback":
+                    binary_snapshot_fallback_layers += 1
+                else:
+                    binary_snapshot_layers += 1
+                binary_layer_diag.append((key, int(current_sign.numel()), cdiag))
+                continue
+
+            if self._is_bn_beta_key(key):
+                entry, nbytes = self._encode_wire_tensor(
+                    tensor.detach(), self.beta_comm_mode
+                )
+                beta_model[key] = entry
+                beta_payload_bytes += int(nbytes)
+                beta_numel += int(tensor.numel())
+                continue
+
+            if int(self.omit_legacy_bn_buffers) and self._is_legacy_bn_buffer_key(key):
+                continue
+
+            stats_model[key] = tensor.detach().cpu()
 
         try:
             round_number = int(self.server.round_number)
@@ -1201,472 +2036,310 @@ class FedBop(FederatedLearningClass):
             round_number = -1
 
         if self.diag:
-            if self._diag_server_pack_round != round_number:
-                self._diag_server_pack_round = round_number
-                self._diag_server_pack_calls = 0
-            self._diag_server_pack_calls += 1
+            full_1bit_bytes = (int(binary_numel) + 7) // 8
+            self._log(
+                f"GAP_RICE_DOWNLINK round={round_number} "
+                f"binary={binary_numel} flips={binary_flip_events} "
+                f"flip_rate={binary_flip_events/max(1,binary_numel):.6e} "
+                f"rice_layers={binary_rice_layers} "
+                f"snapshot_layers={binary_snapshot_layers} "
+                f"snapshot_fallback_layers={binary_snapshot_fallback_layers} "
+                f"rice_valid_bits={binary_rice_valid_bits} "
+                f"rice_data_bytes={binary_rice_data_bytes} "
+                f"selected_entry_pickle_KiB={binary_selected_pickle_bytes/1024.0:.3f} "
+                f"dense_1bit_reference_KiB={full_1bit_bytes/1024.0:.3f}"
+            )
+            if self._layer_log_enabled(round_number):
+                for key, n, d in binary_layer_diag:
+                    self._log(
+                        f"GAP_RICE_DOWNLINK_LAYER round={round_number} "
+                        f"layer={key} numel={n} mode={d['mode']} "
+                        f"events={d['events']} k={d['rice_k']} "
+                        f"valid_bits={d['rice_valid_bits']} "
+                        f"rice_data_bytes={d['rice_data_bytes']} "
+                        f"snapshot_data_bytes={d['snapshot_data_bytes']} "
+                        f"selected_pickle_bytes={d['selected_pickle_bytes']}"
+                    )
 
         old_gamma = self.gamma
-        old_rho = self.rho
         did_decay = False
-
-        # Intentionally preserves the current behavior so diagnostics can reveal
-        # whether this function is called more than once on a decay round.
         if (
             round_number > 0
+            and round_number < int(self.num_of_rounds)
             and self.decay_rounds > 0
             and round_number % self.decay_rounds == 0
+            and self._last_decay_round != round_number
         ):
-            self.gamma = self.decay_factor * self.gamma
-            self.rho = self.decay_factor * self.rho
+            self.gamma *= self.decay_factor
+            self._last_decay_round = round_number
             did_decay = True
 
-        if self.diag:
-            self._diag_log(
-                f"SERVER_PACK round={round_number} call={self._diag_server_pack_calls} "
-                f"decay={int(did_decay)} gamma={old_gamma:.3e}->{self.gamma:.3e} "
-                f"rho={old_rho:.3e}->{self.rho:.3e}"
+        if self.diag and did_decay:
+            self._log(
+                f"GAMMA_DECAY round={round_number} "
+                f"gamma={old_gamma:.3e}->{self.gamma:.3e}"
             )
 
-        return {
+        momentum_sync = (
+            int(round_number) == int(self.pending_sync_round)
+            and len(self.pending_shared_m_ternary) > 0
+        )
+
+        next_round = int(round_number) + 1 if round_number >= 0 else 1
+        payload = {
             "bin_model": bin_model,
+            "beta_model": beta_model,
             "stats_model": stats_model,
             "gamma": self.gamma,
-            "rho": self.rho,
+            "next_round": next_round,
+            "momentum_sync": bool(momentum_sync),
+            "momentum_sync_round": int(round_number) if momentum_sync else -1,
         }
+        if momentum_sync:
+            payload["shared_m_ternary"] = self.pending_shared_m_ternary
+
+        if self.diag:
+            self._log(
+                f"BETA_DOWNLINK round={round_number} mode={self.beta_comm_mode} "
+                f"numel={beta_numel} logical_payload_KiB={beta_payload_bytes/1024.0:.3f} "
+                f"representation=absolute decoded_fp32=1"
+            )
+        return payload
 
     @torch.no_grad()
-    def unpack_server_model(
-        self,
-        packed_model,
-        current_model,
-    ):
+    def unpack_server_model(self, packed_model, current_model):
         bin_model = packed_model["bin_model"]
+        beta_model = packed_model.get("beta_model", {})
         stats_model = packed_model["stats_model"]
-
-        received_gamma = packed_model["gamma"]
-        received_rho = packed_model["rho"]
-
-        self.gamma = received_gamma
-        # Current algorithm keeps local rho unchanged. Uncomment to test rho decay:
-        # self.rho = received_rho
+        momentum_sync = bool(packed_model.get("momentum_sync", False))
+        momentum_sync_round = int(packed_model.get("momentum_sync_round", -1))
+        shared_m_ternary = packed_model.get("shared_m_ternary", {})
+        self.gamma = float(packed_model["gamma"])
+        self._scheduled_local_round = int(
+            packed_model.get("next_round", self._diag_client_round + 1)
+        )
 
         if self.m_buffers is None:
             self.m_buffers = {}
-
-        if self.e_buffers is None:
-            self.e_buffers = {}
-
         if self.round_global_weights is None:
             self.round_global_weights = {}
 
         total_binary = 0
-        total_local_flip = 0
-        total_server_flip = 0
-        total_disagreement = 0
-        total_local_rejected = 0
-        total_server_imposed = 0
-        total_pre_trigger_new = 0
-        total_post_trigger_new = 0
-        total_post_trigger_on_disagreement = 0
-        total_e_abs = 0.0
-        total_corr_delta_abs = 0.0
+        total_projected = 0
+        total_delta = 0.0
+        max_post_violation = 0.0
+        sync_numel = 0
+        sync_abs_private_to_shared = 0.0
+        sync_abs_shared = 0.0
+        sync_missing_layers = 0
 
-        total_rejected_a_lt_tau = 0
-        total_rejected_a_neg = 0
-        total_rejected_a_0_tau = 0
-        total_rejected_a_tau_2tau = 0
-        total_rejected_a_ge_2tau = 0
-        total_pre_trigger_rejected = 0
-        total_pre_trigger_imposed = 0
-        total_post_trigger_rejected = 0
-        total_post_trigger_imposed = 0
-        total_reflection_identity_mismatch = 0
-        total_e_fresh_abs_sum = 0.0
-        max_e_fresh_abs = 0.0
-
-        sync_layers = {}
-
-        for key, global_tensor in bin_model.items():
+        for key, server_entry in bin_model.items():
             if key not in current_model:
                 continue
 
             client_tensor = current_model[key]
 
-            new_global_weight = self._sign_binary(
-                global_tensor.to(
+            # -------------------------------------------------------------
+            # Reconstruct the authoritative global binary tensor.
+            # -------------------------------------------------------------
+            # New packets are either:
+            #   bp1 : absolute one-bit snapshot
+            #   gr1 : Gap+Rice indices of flips relative to the PREVIOUS
+            #         authoritative global state stored in round_global_weights.
+            # A legacy dense tensor path is intentionally retained so old saved
+            # packets/tests do not break.
+            if isinstance(server_entry, (tuple, list)) and len(server_entry) > 0:
+                codec = server_entry[0]
+            else:
+                codec = None
+
+            if codec == "bp1":
+                flat = self._decode_binary_snapshot_1bit(
+                    server_entry,
                     device=client_tensor.device,
                     dtype=client_tensor.dtype,
                 )
+                if int(flat.numel()) != int(client_tensor.numel()):
+                    raise ValueError(
+                        f"Downlink binary snapshot size mismatch for {key}: "
+                        f"{flat.numel()} != {client_tensor.numel()}"
+                    )
+                w_new = flat.view_as(client_tensor)
+
+            elif codec == "gr1":
+                base = self.round_global_weights.get(key)
+                if base is None:
+                    raise RuntimeError(
+                        f"Cannot apply Rice downlink delta for {key}: client has no "
+                        f"previous authoritative global binary state. A 1-bit "
+                        f"snapshot is required before deltas."
+                    )
+                if int(base.numel()) != int(client_tensor.numel()):
+                    raise RuntimeError(
+                        f"Rice downlink base-size mismatch for {key}: "
+                        f"{base.numel()} != {client_tensor.numel()}"
+                    )
+
+                flip_indices = self._decode_sparse_indices_gap_rice(server_entry)
+                if flip_indices.numel() > 0:
+                    if int(flip_indices[-1].item()) >= int(client_tensor.numel()):
+                        raise ValueError(
+                            f"Rice downlink index out of range for {key}: "
+                            f"max={int(flip_indices[-1].item())}, "
+                            f"numel={client_tensor.numel()}"
+                        )
+
+                w_new = self._sign_binary(
+                    base.to(device=client_tensor.device, dtype=client_tensor.dtype)
+                ).view_as(client_tensor).clone()
+                if flip_indices.numel() > 0:
+                    idx_dev = flip_indices.to(device=client_tensor.device)
+                    w_new.view(-1)[idx_dev] *= -1
+
+            elif torch.is_tensor(server_entry):
+                # Backward compatibility with the old uncompressed downlink.
+                w_new = self._sign_binary(
+                    server_entry.to(
+                        device=client_tensor.device, dtype=client_tensor.dtype
+                    )
+                )
+
+            else:
+                raise ValueError(
+                    f"Unsupported FedBop binary downlink entry for {key}: "
+                    f"{type(server_entry).__name__}, codec={codec!r}"
+                )
+
+            m = self._prepare_m_buffer(key, client_tensor)
+
+            do_projection = False
+
+            if momentum_sync:
+                # All clients receive exactly the same reconstructed low-bit EMA.
+                # We intentionally do NOT mix this client-gradient EMA into the
+                # server's event EMA; only client private states are synchronized.
+                entry = shared_m_ternary.get(key)
+                if entry is None:
+                    sync_missing_layers += 1
+                    raise RuntimeError(
+                        f"Missing shared momentum for layer {key} on momentum sync round "
+                        f"{momentum_sync_round}."
+                    )
+                shared_m = self._decode_ternary_entry(
+                    entry, device=m.device, dtype=m.dtype
+                ).view_as(m)
+                sync_numel += int(m.numel())
+                sync_abs_private_to_shared += float((m - shared_m).abs().sum().item())
+                sync_abs_shared += float(shared_m.abs().sum().item())
+                m.copy_(shared_m)
+                do_projection = True
+
+            elif self.has_local_update and key in self.round_global_weights:
+                do_projection = True
+
+            if do_projection:
+                # -----------------------------------------------------------------
+                # MINIMUM FEASIBLE PROJECTION
+                # -----------------------------------------------------------------
+                # Bop flips a binary weight w when w*m > tau. After the server has
+                # accepted w_new, an optimizer state is immediately compatible with
+                # that decision iff
+                #
+                #                   w_new * x <= tau.
+                #
+                # We do NOT invent a reflected state and do NOT reset x to +/-tau.
+                # We solve the parameter-free convex problem
+                #
+                #       min_x  1/2 ||x - m||_2^2
+                #       s.t.   w_new * x <= tau.
+                #
+                # Since w_new is +/-1, the feasible set is a 1-D half-space. Its
+                # exact orthogonal projection is
+                #
+                #       m* = m - [w_new*m - tau]_+ w_new.
+                #
+                # Hence every already-feasible coordinate is preserved EXACTLY and
+                # only an actual Bop violation is moved, by the minimum possible
+                # Euclidean distance, to the non-triggering boundary w_new*m*=tau.
+                aligned = w_new * m
+                excess = torch.clamp(aligned - self.tau, min=0.0)
+                violation = excess > 0
+                projected = m - excess * w_new
+
+                if self.diag and violation.any():
+                    total_projected += int(violation.sum().item())
+                    total_delta += float(
+                        (projected[violation] - m[violation]).abs().sum().item()
+                    )
+
+                m.copy_(projected)
+
+                if self.diag:
+                    total_binary += m.numel()
+                    post_excess = torch.clamp(w_new * m - self.tau, min=0.0)
+                    if post_excess.numel() > 0:
+                        max_post_violation = max(
+                            max_post_violation, float(post_excess.max().item())
+                        )
+
+            # Server binary state is authoritative for the next local round.
+            client_tensor.copy_(w_new)
+            self.round_global_weights[key] = w_new.detach().cpu().clone()
+            self.temporal_opposite_counts[key] = torch.zeros_like(
+                client_tensor, dtype=torch.int16
             )
+            self.temporal_state_steps[key] = 0
 
-            m = self._prepare_m_buffer(
-                key,
-                client_tensor,
-            )
+        # Decode the aggregated global beta back to the client's FP32 model.
+        # Adam m/v remain private and persistent; only the model parameter beta
+        # is synchronized.
+        for key, entry in beta_model.items():
+            if key not in current_model:
+                continue
+            target = current_model[key]
+            decoded = self._decode_wire_tensor(
+                entry, device=target.device, dtype=target.dtype
+            ).view_as(target)
+            target.copy_(decoded)
 
-            layer_diag = None
+        # Generic compatibility path for any remaining small non-binary state.
+        for key, server_tensor in stats_model.items():
+            if key not in current_model:
+                continue
 
+            lname = key.lower()
             if (
-                self.has_local_update
-                and key in self.round_global_weights
-                and key in self.e_buffers
+                "running_mean" in lname
+                or "running_var" in lname
+                or "num_batches_tracked" in lname
             ):
-                old_global_weight = self._sign_binary(
-                    self.round_global_weights[key].to(
-                        device=client_tensor.device,
-                        dtype=client_tensor.dtype,
-                    )
-                )
+                continue
 
-                local_weight = self._sign_binary(
-                    client_tensor
-                )
-
-                e = self.e_buffers[key].to(
-                    device=client_tensor.device,
-                    dtype=client_tensor.dtype,
-                )
-
-                aligned_m = old_global_weight * m
-
-                if e.shape != aligned_m.shape:
-                    e = self.tau - aligned_m
-
-                local_flip = (
-                    local_weight
-                    != old_global_weight
-                )
-
-                server_flip = (
-                    new_global_weight
-                    != old_global_weight
-                )
-
-                disagreement = (
-                    local_flip
-                    != server_flip
-                )
-
-                local_rejected = local_flip & (~server_flip)
-                server_imposed = (~local_flip) & server_flip
-
-                pre_trigger_new = (
-                    new_global_weight * m > self.tau
-                )
-
-                rejected_a_lt_tau = (
-                    local_rejected & (aligned_m < self.tau)
-                )
-                rejected_a_neg = (
-                    local_rejected & (aligned_m < 0)
-                )
-                rejected_a_0_tau = (
-                    local_rejected
-                    & (aligned_m >= 0)
-                    & (aligned_m < self.tau)
-                )
-                rejected_a_tau_2tau = (
-                    local_rejected
-                    & (aligned_m >= self.tau)
-                    & (aligned_m < (2.0 * self.tau))
-                )
-                rejected_a_ge_2tau = (
-                    local_rejected
-                    & (aligned_m >= (2.0 * self.tau))
-                )
-
-                pre_trigger_rejected = pre_trigger_new & local_rejected
-                pre_trigger_imposed = pre_trigger_new & server_imposed
-
-                e_expected = self.tau - aligned_m
-                e_fresh_abs = (e - e_expected).abs()
-
-                corrected_aligned_m = (
-                    aligned_m
-                    + ((1.0 + self.rho) * e)
-                )
-
-                corrected_m = (
-                    old_global_weight
-                    * corrected_aligned_m
-                )
-
-                if self.diag:
-                    n = client_tensor.numel()
-                    local_flip_n = int(local_flip.sum().item())
-                    server_flip_n = int(server_flip.sum().item())
-                    disagreement_n = int(disagreement.sum().item())
-                    local_rejected_n = int(local_rejected.sum().item())
-                    server_imposed_n = int(server_imposed.sum().item())
-                    pre_trigger_n = int(pre_trigger_new.sum().item())
-                    rejected_a_lt_tau_n = int(rejected_a_lt_tau.sum().item())
-                    rejected_a_neg_n = int(rejected_a_neg.sum().item())
-                    rejected_a_0_tau_n = int(rejected_a_0_tau.sum().item())
-                    rejected_a_tau_2tau_n = int(rejected_a_tau_2tau.sum().item())
-                    rejected_a_ge_2tau_n = int(rejected_a_ge_2tau.sum().item())
-                    pre_trigger_rejected_n = int(pre_trigger_rejected.sum().item())
-                    pre_trigger_imposed_n = int(pre_trigger_imposed.sum().item())
-                    e_fresh_abs_sum = float(e_fresh_abs.sum().item())
-                    e_fresh_abs_max = float(e_fresh_abs.max().item())
-
-                    if disagreement_n > 0:
-                        e_abs_sum = float(e[disagreement].abs().sum().item())
-                        corr_delta_abs_sum = float(
-                            (corrected_m[disagreement] - m[disagreement]).abs().sum().item()
-                        )
-                    else:
-                        e_abs_sum = 0.0
-                        corr_delta_abs_sum = 0.0
-
-                m.copy_(
-                    torch.where(
-                        disagreement,
-                        corrected_m,
-                        m,
-                    )
-                )
-
-                if self.diag:
-                    post_trigger_new = (
-                        new_global_weight * m > self.tau
-                    )
-                    post_trigger_n = int(post_trigger_new.sum().item())
-                    post_trigger_dis_n = int(
-                        (post_trigger_new & disagreement).sum().item()
-                    )
-                    post_trigger_rejected = (
-                        post_trigger_new & local_rejected
-                    )
-                    post_trigger_imposed = (
-                        post_trigger_new & server_imposed
-                    )
-                    post_trigger_rejected_n = int(
-                        post_trigger_rejected.sum().item()
-                    )
-                    post_trigger_imposed_n = int(
-                        post_trigger_imposed.sum().item()
-                    )
-                    reflection_identity_mismatch_n = int(
-                        (
-                            post_trigger_rejected
-                            != rejected_a_lt_tau
-                        ).sum().item()
-                    )
-
-                    layer_diag = {
-                        "numel": n,
-                        "local_flip": local_flip_n,
-                        "server_flip": server_flip_n,
-                        "disagreement": disagreement_n,
-                        "local_rejected": local_rejected_n,
-                        "server_imposed": server_imposed_n,
-                        "pre_trigger_new": pre_trigger_n,
-                        "post_trigger_new": post_trigger_n,
-                        "post_trigger_dis": post_trigger_dis_n,
-                        "rejected_a_lt_tau": rejected_a_lt_tau_n,
-                        "rejected_a_neg": rejected_a_neg_n,
-                        "rejected_a_0_tau": rejected_a_0_tau_n,
-                        "rejected_a_tau_2tau": rejected_a_tau_2tau_n,
-                        "rejected_a_ge_2tau": rejected_a_ge_2tau_n,
-                        "pre_trigger_rejected": pre_trigger_rejected_n,
-                        "pre_trigger_imposed": pre_trigger_imposed_n,
-                        "post_trigger_rejected": post_trigger_rejected_n,
-                        "post_trigger_imposed": post_trigger_imposed_n,
-                        "reflection_identity_mismatch": reflection_identity_mismatch_n,
-                        "e_fresh_abs_sum": e_fresh_abs_sum,
-                        "e_fresh_abs_max": e_fresh_abs_max,
-                        "e_abs_sum": e_abs_sum,
-                        "corr_delta_abs_sum": corr_delta_abs_sum,
-                    }
-
-                    total_binary += n
-                    total_local_flip += local_flip_n
-                    total_server_flip += server_flip_n
-                    total_disagreement += disagreement_n
-                    total_local_rejected += local_rejected_n
-                    total_server_imposed += server_imposed_n
-                    total_pre_trigger_new += pre_trigger_n
-                    total_post_trigger_new += post_trigger_n
-                    total_post_trigger_on_disagreement += post_trigger_dis_n
-                    total_e_abs += e_abs_sum
-                    total_corr_delta_abs += corr_delta_abs_sum
-                    total_rejected_a_lt_tau += rejected_a_lt_tau_n
-                    total_rejected_a_neg += rejected_a_neg_n
-                    total_rejected_a_0_tau += rejected_a_0_tau_n
-                    total_rejected_a_tau_2tau += rejected_a_tau_2tau_n
-                    total_rejected_a_ge_2tau += rejected_a_ge_2tau_n
-                    total_pre_trigger_rejected += pre_trigger_rejected_n
-                    total_pre_trigger_imposed += pre_trigger_imposed_n
-                    total_post_trigger_rejected += post_trigger_rejected_n
-                    total_post_trigger_imposed += post_trigger_imposed_n
-                    total_reflection_identity_mismatch += reflection_identity_mismatch_n
-                    total_e_fresh_abs_sum += e_fresh_abs_sum
-                    max_e_fresh_abs = max(max_e_fresh_abs, e_fresh_abs_max)
-
-            client_tensor.copy_(
-                new_global_weight
+            target = current_model[key]
+            target.copy_(
+                server_tensor.to(device=target.device, dtype=target.dtype)
             )
 
-            self.round_global_weights[key] = (
-                new_global_weight
-                .detach()
-                .cpu()
+        if self.diag and momentum_sync:
+            self._log(
+                f"M_SYNC_DOWNLINK round={momentum_sync_round} gamma_received={self.gamma:.3e} "
+                f"numel={sync_numel} missing_layers={sync_missing_layers} "
+                f"mean|m_private-m_shared|={sync_abs_private_to_shared/max(1,sync_numel):.3e} "
+                f"mean|m_shared|={sync_abs_shared/max(1,sync_numel):.3e} "
+                f"post_sync_projected={total_projected} "
+                f"post_sync_projection_rate={total_projected/max(1,total_binary):.6e} "
+                f"max_post_violation={max_post_violation:.3e} "
+                f"adam_state_preserved=1"
             )
-
-            if layer_diag is not None:
-                sync_layers[key] = layer_diag
-
-        if self.diag and self.has_local_update:
-            round_number = self._diag_client_round
-            disagreement_rate = total_disagreement / max(1, total_binary)
-            local_rejected_rate = total_local_rejected / max(1, total_binary)
-            server_imposed_rate = total_server_imposed / max(1, total_binary)
-            post_dis_trigger_rate = (
-                total_post_trigger_on_disagreement / max(1, total_disagreement)
-            )
-            mean_e_abs = total_e_abs / max(1, total_disagreement)
-            mean_corr_delta = total_corr_delta_abs / max(1, total_disagreement)
-
-            rejected_a_lt_tau_rate = (
-                total_rejected_a_lt_tau / max(1, total_local_rejected)
-            )
-            pre_trigger_rejected_rate = (
-                total_pre_trigger_rejected / max(1, total_local_rejected)
-            )
-            post_trigger_rejected_rate = (
-                total_post_trigger_rejected / max(1, total_local_rejected)
-            )
-            post_trigger_imposed_rate = (
-                total_post_trigger_imposed / max(1, total_server_imposed)
-            )
-            mean_e_fresh_abs = (
-                total_e_fresh_abs_sum / max(1, total_binary)
-            )
-
-            self._diag_log(
-                f"SYNC round={round_number} gamma={self.gamma:.3e} "
-                f"rho_local={self.rho:.3e} rho_received={received_rho:.3e} "
-                f"local_flip={total_local_flip} server_flip={total_server_flip} "
-                f"disagreement={total_disagreement} disagreement_rate={disagreement_rate:.6e} "
-                f"local_rejected={total_local_rejected} rejected_rate={local_rejected_rate:.6e} "
-                f"server_imposed={total_server_imposed} imposed_rate={server_imposed_rate:.6e} "
-                f"pre_new_trigger={total_pre_trigger_new} post_new_trigger={total_post_trigger_new} "
-                f"post_trigger_on_disagreement={total_post_trigger_on_disagreement} "
-                f"post_dis_trigger_rate={post_dis_trigger_rate:.6f} "
-                f"rejected_a_lt_tau={total_rejected_a_lt_tau} rejected_a_lt_tau_rate={rejected_a_lt_tau_rate:.6f} "
-                f"rej_a_neg={total_rejected_a_neg} rej_a_0_tau={total_rejected_a_0_tau} "
-                f"rej_a_tau_2tau={total_rejected_a_tau_2tau} rej_a_ge_2tau={total_rejected_a_ge_2tau} "
-                f"pre_trigger_rejected={total_pre_trigger_rejected} pre_trigger_rejected_rate={pre_trigger_rejected_rate:.6f} "
-                f"post_trigger_rejected={total_post_trigger_rejected} post_trigger_rejected_rate={post_trigger_rejected_rate:.6f} "
-                f"post_trigger_imposed={total_post_trigger_imposed} post_trigger_imposed_rate={post_trigger_imposed_rate:.6f} "
-                f"reflection_identity_mismatch={total_reflection_identity_mismatch} "
-                f"e_fresh_mean_abs={mean_e_fresh_abs:.3e} e_fresh_max_abs={max_e_fresh_abs:.3e} "
-                f"mean|e|_dis={mean_e_abs:.3e} mean|delta_m|_dis={mean_corr_delta:.3e}"
-            )
-
-            if self._diag_layer_log_enabled(round_number):
-                for key, d in sync_layers.items():
-                    self._diag_log(
-                        f"SYNC_LAYER round={round_number} layer={key} n={d['numel']} "
-                        f"local={d['local_flip']} server={d['server_flip']} dis={d['disagreement']} "
-                        f"rejected={d['local_rejected']} imposed={d['server_imposed']} "
-                        f"rej_a_lt_tau={d['rejected_a_lt_tau']} "
-                        f"rej_a_neg={d['rejected_a_neg']} rej_a_0_tau={d['rejected_a_0_tau']} "
-                        f"rej_a_tau_2tau={d['rejected_a_tau_2tau']} rej_a_ge_2tau={d['rejected_a_ge_2tau']} "
-                        f"pre_trigger={d['pre_trigger_new']} post_trigger={d['post_trigger_new']} "
-                        f"post_trigger_dis={d['post_trigger_dis']} "
-                        f"post_trigger_rejected={d['post_trigger_rejected']} "
-                        f"post_trigger_imposed={d['post_trigger_imposed']} "
-                        f"reflection_mismatch={d['reflection_identity_mismatch']} "
-                        f"e_fresh_max={d['e_fresh_abs_max']:.3e}"
-                    )
-
-        stats_sync_tensors = 0
-        stats_sync_float_numel = 0
-        stats_sync_abs_sum = 0.0
-        stats_sync_abs_max = 0.0
-
-        if self.sync_stats:
-            for key, tensor in stats_model.items():
-                if key not in current_model:
-                    continue
-
-                target = current_model[key]
-                received = tensor.to(
-                    device=target.device,
-                    dtype=target.dtype,
-                )
-
-                if torch.is_floating_point(target):
-                    delta = (target - received).abs()
-                    stats_sync_float_numel += target.numel()
-                    stats_sync_abs_sum += float(delta.sum().item())
-                    if delta.numel() > 0:
-                        stats_sync_abs_max = max(
-                            stats_sync_abs_max,
-                            float(delta.max().item()),
-                        )
-
-                target.copy_(received)
-                stats_sync_tensors += 1
-
-        adam_state_params_before = 0
-        adam_step_max_before = 0
-        adam_reset = 0
-        adam_moment_numel = 0
-        adam_exp_avg_abs_sum = 0.0
-        adam_exp_avg_sq_sum = 0.0
-
-        if self.stats_optimizer is not None:
-            adam_state_params_before = len(self.stats_optimizer.state)
-            for state in self.stats_optimizer.state.values():
-                step = state.get("step", 0)
-                if torch.is_tensor(step):
-                    step = int(step.item())
-                else:
-                    step = int(step)
-                adam_step_max_before = max(adam_step_max_before, step)
-
-                exp_avg = state.get("exp_avg")
-                exp_avg_sq = state.get("exp_avg_sq")
-                if torch.is_tensor(exp_avg):
-                    adam_moment_numel += exp_avg.numel()
-                    adam_exp_avg_abs_sum += float(
-                        exp_avg.detach().abs().sum().item()
-                    )
-                if torch.is_tensor(exp_avg_sq):
-                    adam_exp_avg_sq_sum += float(
-                        exp_avg_sq.detach().sum().item()
-                    )
-
-            if self.sync_stats and self.reset_stats_optimizer_on_sync:
-                self.stats_optimizer.state.clear()
-                adam_reset = 1
-
-        if self.diag:
-            round_number = self._diag_client_round
-            stats_sync_mean_abs = (
-                stats_sync_abs_sum / max(1, stats_sync_float_numel)
-            )
-            adam_exp_avg_mean_abs = (
-                adam_exp_avg_abs_sum / max(1, adam_moment_numel)
-            )
-            adam_exp_avg_sq_mean = (
-                adam_exp_avg_sq_sum / max(1, adam_moment_numel)
-            )
-            self._diag_log(
-                f"STATS_SYNC round={round_number} enabled={int(self.sync_stats)} "
-                f"tensors={stats_sync_tensors} float_numel={stats_sync_float_numel} "
-                f"mean_abs_overwrite={stats_sync_mean_abs:.3e} "
-                f"max_abs_overwrite={stats_sync_abs_max:.3e} "
-                f"reset_adam={adam_reset} "
-                f"adam_state_params_before={adam_state_params_before} "
-                f"adam_step_max_before={adam_step_max_before} "
-                f"adam_exp_avg_mean_abs={adam_exp_avg_mean_abs:.3e} "
-                f"adam_exp_avg_sq_mean={adam_exp_avg_sq_mean:.3e}"
+        elif self.diag and self.has_local_update:
+            self._log(
+                f"MIN_PROJ round={self._diag_client_round} gamma={self.gamma:.3e} "
+                f"projected={total_projected} "
+                f"projection_rate={total_projected/max(1,total_binary):.6e} "
+                f"mean_abs_delta={total_delta/max(1,total_projected):.3e} "
+                f"max_post_violation={max_post_violation:.3e} "
+                f"adam_state_preserved=1"
             )
 
         self.has_local_update = False
-
         return current_model

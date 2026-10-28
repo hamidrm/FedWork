@@ -1,0 +1,5 @@
+method,source,evaluated_rounds,final_round,last_accuracy_pct,best_accuracy_pct,round_at_best,last_uplink_GB,last_downlink_GB,last_total_GB
+FedBop,output/bin_cifar10_vgg7_0_1/FedBopVGG7_probes_data.data,800,800,72.93999791145325,74.66999888420105,754,1.469368971,1.06402658,2.533395551
+FedVote,output/bin_cifar10_vgg7_0_1/FedVoteVGG7_probes_data.data,800,800,80.57000041007996,82.24999904632568,744,12.983368,415.3603923,428.3437603
+BiFL-BiML,output/bin_cifar10_vgg7_0_1/BiFLBiMLVGG7_probes_data.data,800,800,39.14999961853027,52.789998054504395,28,26.127536,65.56704342,91.69457942
+BiPruneFL,output/bin_cifar10_vgg7_0_1/BiPruneFLVGG7_probes_data.data,800,800,37.88999915122986,38.920000195503235,764,1.6520417,1.08098144,2.73302314

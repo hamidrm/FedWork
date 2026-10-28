@@ -53,13 +53,36 @@ class ClientExp:
         if lr != None:
             self.lr = lr
 
-        if self.momentum is None:
-            self.client_optimizer = self.optimizer(self.client_model.parameters(), lr=self.lr)
-        elif self.weight_decay is None:
-            self.client_optimizer = self.optimizer(self.client_model.parameters(), lr=self.lr, momentum=self.momentum)
-        else:
-            self.client_optimizer = self.optimizer(self.client_model.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
+        optimizer_name = self.optimizer.__name__.lower()
 
+        optimizer_kwargs = {
+            "lr": self.lr
+        }
+
+        if self.weight_decay is not None:
+            optimizer_kwargs["weight_decay"] = self.weight_decay
+
+        if optimizer_name == "sgd":
+            if self.momentum is not None:
+                optimizer_kwargs["momentum"] = self.momentum
+
+        elif optimizer_name == "adam":
+            # Do NOT pass momentum to Adam.
+            # Default Adam betas = (0.9, 0.999)
+            pass
+
+        elif optimizer_name == "adamw":
+            pass
+
+        else:
+            # Conservative fallback:
+            # only lr and weight_decay are passed.
+            pass
+
+        self.client_optimizer = self.optimizer(
+            self.client_model.parameters(),
+            **optimizer_kwargs
+        )
         
         for epoch in range(epochs_num):
             self.total_epochs += 1

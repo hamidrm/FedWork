@@ -1,0 +1,39 @@
+{
+  "files": {
+    "FedBop": "output/bin_cifar10_vgg7_0_1/FedBopVGG7_probes_data.data",
+    "FedVote": "output/bin_cifar10_vgg7_0_1/FedVoteVGG7_probes_data.data",
+    "BiFL-BiML": "output/bin_cifar10_vgg7_0_1/BiFLBiMLVGG7_probes_data.data",
+    "BiPruneFL": "output/bin_cifar10_vgg7_0_1/BiPruneFLVGG7_probes_data.data"
+  },
+  "GB_definition": 1000000000.0,
+  "stable_window": 10,
+  "thresholds": [
+    0.6,
+    0.65,
+    0.7,
+    0.72,
+    0.75
+  ],
+  "budgets_GB": [
+    1.05333381,
+    1.1754607898207508,
+    1.3117475726009622,
+    1.463835892379624,
+    1.6335578312296994,
+    1.8229578888340583,
+    2.034317610880496,
+    2.2701830729537207,
+    2.533395551
+  ],
+  "warnings": {
+    "FedBop": [],
+    "FedVote": [],
+    "BiFL-BiML": [],
+    "BiPruneFL": []
+  },
+  "communication_probes": {
+    "uplink": "ServerTotalRecvBytes",
+    "downlink": "ServerTotalSentBytes",
+    "accuracy": "EvaluationAccuracy"
+  }
+}

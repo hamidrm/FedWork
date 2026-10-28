@@ -22,6 +22,9 @@ class BaseArch(Enum):
     CNNSimpleLite = "CNNSimpleLite"
     ViTTinyCIFAR10 = "ViTTinyCIFAR10"
     BinaryNet = "BinaryNet"
+    BinaryNet2 = "BinaryNet2"
+    VGG7Bin = "VGG7Bin"
+    ResNetBinAct = "ResNetBinAct"
 
 class ActivationFunction(Enum):
     ReLUFunction = "relu"
@@ -59,24 +62,48 @@ class FWArch:
             name_type = tag.split(':')
             p_name = name_type[0]
 
-            if(len(name_type) == 2):
+            # ---------------------------------------------------------
+            # Parse type
+            # Examples:
+            #   <<WeightMode:integer>>
+            #   <<WeightMode:integer:0>>
+            # both must register "integer" as the type.
+            # ---------------------------------------------------------
+            if len(name_type) >= 2:
                 p_type = name_type[1]
+
                 if p_type != "":
                     self.variables_type[p_name] = p_type
 
-            if(len(name_type) == 3):
+            # ---------------------------------------------------------
+            # Parse default value
+            # ---------------------------------------------------------
+            if len(name_type) >= 3:
                 p_def_val = name_type[2]
+
                 if p_def_val != "":
                     self.variables_value[p_name] = p_def_val
-                    self.SetParameter(p_name, p_def_val)
-            else:
+                    self.SetParameter(
+                        p_name,
+                        p_def_val
+                    )
+                else:
+                    self.variables_value[p_name] = "undef"
+
+            elif p_name not in self.variables_value:
                 self.variables_value[p_name] = "undef"
         
     
     def SetParameter(self, parameter_name, parameter_value):
         if parameter_name in self.variables_type.keys():
             if self.variables_type[parameter_name] == "bool":
-                parameter_value = bool(parameter_value)
+                if isinstance(parameter_value, str):
+                    parameter_value = (
+                        parameter_value.strip().lower()
+                        in ("true", "1", "yes", "on")
+                    )
+                else:
+                    parameter_value = bool(parameter_value)
                 self.variables_value[parameter_name] = parameter_value
             elif self.variables_type[parameter_name] == "integer":
                 parameter_value = int(parameter_value)
